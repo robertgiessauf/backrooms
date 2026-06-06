@@ -1,0 +1,56 @@
+{
+  "0": {
+    "title": "Level 0",
+    "sections": [
+      {
+        "heading": "Objective",
+        "text": "Find the Manila Room. Remaining inside it long enough will take you to the next level."
+      },
+      {
+        "heading": "Controls",
+        "items": [
+          "WASD or arrow keys: move",
+          "Mouse: look around",
+          "Shift: run",
+          "Space: jump over low obstacles",
+          "E: open info and inventory",
+          "Esc: pause, or close the current menu"
+        ]
+      }
+    ]
+  },
+  "1": {
+    "title": "Level 1",
+    "sections": [
+      {
+        "heading": "Objective",
+        "text": "Find the exit through the garage while avoiding hazards and entities."
+      },
+      {
+        "heading": "Survival",
+        "items": [
+          "Pick up the torch near the start if you do not already have it.",
+          "False puddles are dangerous if you step too close.",
+          "Hounds can be delayed by pointing the equipped torch at them."
+        ]
+      }
+    ]
+  },
+  "2": {
+    "title": "Level 2",
+    "sections": [
+      {
+        "heading": "Objective",
+        "text": "Move through the maintenance tunnels and find the documented exit."
+      },
+      {
+        "heading": "Survival",
+        "items": [
+          "Smilers linger on wall faces in dark areas. Do not get too close and do not shine the torch at them.",
+          "Deathmoths roam the tunnels and are attracted to active light sources.",
+          "Some low obstacles can be jumped over with Space."
+        ]
+      }
+    ]
+  }
+}

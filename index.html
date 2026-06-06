@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Backrooms: Levels 0-1</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <main id="game" aria-label="Backrooms 3D browser game"></main>
+
+    <div class="hud" aria-live="polite">
+      <section class="status-band">
+        <div class="status-cell">
+          <span class="status-label">Level</span>
+          <strong id="hud-level">0</strong>
+        </div>
+        <div class="status-cell">
+          <span class="status-label">Classification</span>
+          <strong id="hud-class">1</strong>
+        </div>
+      </section>
+
+      <section class="meters">
+        <div class="meter">
+          <span>Health</span>
+          <div class="meter-track"><i id="health-fill"></i></div>
+        </div>
+      </section>
+    </div>
+
+    <section id="inventory" class="inventory" aria-live="polite">
+      <div class="inventory-inner">
+        <header class="inventory-head">
+          <h2>Info / Inventory</h2>
+          <button id="inventory-close" type="button">Close</button>
+        </header>
+        <div class="inventory-body">
+          <article id="level-info" class="level-info"></article>
+          <aside>
+            <h3>Items</h3>
+            <div id="inventory-items" class="inventory-items"></div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <div class="crosshair" aria-hidden="true"></div>
+
+    <section id="veil" class="veil">
+      <div class="veil-inner">
+        <p class="kicker">Backrooms</p>
+        <h1 id="veil-title">Level 0</h1>
+        <p id="veil-copy">Yellow walls, wet carpet, and a sound that never stops.</p>
+        <button id="start-button" type="button">Enter</button>
+        <button id="menu-inventory-button" class="secondary-button" type="button">Info / Inventory</button>
+        <div id="level-select" class="level-select" aria-label="Visited levels"></div>
+      </div>
+    </section>
+
+    <section id="intro-info-dialog" class="intro-dialog is-hidden" role="dialog" aria-modal="true" aria-labelledby="intro-info-title">
+      <div class="intro-dialog-inner">
+        <h2 id="intro-info-title">Open Info / Inventory</h2>
+        <p>Press E to open the info and inventory screen. You can also use Esc to close menus.</p>
+        <button id="intro-info-close" type="button">OK</button>
+      </div>
+    </section>
+
+    <div id="message" class="message" aria-live="assertive"></div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
