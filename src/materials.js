@@ -25,6 +25,14 @@ export function materialFor(materials, def, part) {
     }[part];
   }
 
+  if (def.theme === "level4") {
+    return {
+      wall: materials.officeWall,
+      floor: materials.officeFloor,
+      ceiling: materials.officeCeiling,
+    }[part];
+  }
+
   return {
     wall: materials.concreteWall,
     floor: materials.garageFloor,
@@ -111,6 +119,24 @@ export function createMaterials() {
   level3Floor.map.wrapT = THREE.RepeatWrapping;
   level3Floor.map.repeat.set(1.45, 1.45);
 
+  const officeWall = new THREE.MeshStandardMaterial({
+    map: canvasTexture(256, 256, drawOfficeWall),
+    roughness: 0.86,
+    metalness: 0,
+  });
+  officeWall.map.wrapS = THREE.RepeatWrapping;
+  officeWall.map.wrapT = THREE.RepeatWrapping;
+  officeWall.map.repeat.set(1.1, 1.1);
+
+  const officeFloor = new THREE.MeshStandardMaterial({
+    map: canvasTexture(256, 256, drawOfficeFloor),
+    roughness: 0.92,
+    metalness: 0,
+  });
+  officeFloor.map.wrapS = THREE.RepeatWrapping;
+  officeFloor.map.wrapT = THREE.RepeatWrapping;
+  officeFloor.map.repeat.set(1.2, 1.2);
+
   return {
     wallpaper,
     manilaWall,
@@ -132,6 +158,18 @@ export function createMaterials() {
     level3Brick,
     level3Floor,
     level3Ceiling: new THREE.MeshStandardMaterial({ color: 0x363432, roughness: 0.72, metalness: 0.28 }),
+    officeWall,
+    officeFloor,
+    officeCeiling: new THREE.MeshStandardMaterial({ color: 0xc2c3b8, roughness: 0.9 }),
+    officeTrim: new THREE.MeshStandardMaterial({ color: 0xb7b5a6, roughness: 0.74 }),
+    blackedWindow: new THREE.MeshStandardMaterial({ color: 0x020303, roughness: 0.4, metalness: 0.05 }),
+    trapWindow: new THREE.MeshStandardMaterial({ color: 0x101b24, emissive: 0x0d2538, emissiveIntensity: 0.65, roughness: 0.18, metalness: 0.02 }),
+    officeDesk: new THREE.MeshStandardMaterial({ color: 0x6b5b48, roughness: 0.78, metalness: 0.02 }),
+    officeChair: new THREE.MeshStandardMaterial({ color: 0x22272b, roughness: 0.64, metalness: 0.04 }),
+    waterCooler: new THREE.MeshStandardMaterial({ color: 0xd8ddd9, roughness: 0.58, metalness: 0.03 }),
+    waterJug: new THREE.MeshStandardMaterial({ color: 0x9ec7d9, transparent: true, opacity: 0.56, roughness: 0.14 }),
+    vendingMachine: new THREE.MeshStandardMaterial({ color: 0x27343a, roughness: 0.5, metalness: 0.12 }),
+    almondWater: new THREE.MeshStandardMaterial({ color: 0xd7c184, emissive: 0x2f2412, emissiveIntensity: 0.08, roughness: 0.46, metalness: 0.02 }),
     copperPipe: new THREE.MeshStandardMaterial({ color: 0x8c5831, roughness: 0.58, metalness: 0.48 }),
     fume: new THREE.MeshBasicMaterial({ color: 0x9a9d8f, transparent: true, opacity: 0.18, depthWrite: false }),
     heatCeiling: new THREE.MeshStandardMaterial({ color: 0xff8b38, emissive: 0xff4d12, emissiveIntensity: 0.75, transparent: true, opacity: 0.72, roughness: 0.42 }),
@@ -363,6 +401,48 @@ function drawLevel3Floor(ctx, w, h) {
     const v = 75 + (i % 44);
     ctx.fillStyle = `rgba(${v},${v},${v - 4},0.24)`;
     ctx.fillRect((i * 29) % w, (i * 91) % h, 1 + (i % 3), 1);
+  }
+}
+
+function drawOfficeWall(ctx, w, h) {
+  ctx.fillStyle = "#c9c7b8";
+  ctx.fillRect(0, 0, w, h);
+  for (let y = 0; y < h; y += 42) {
+    ctx.fillStyle = "rgba(118,115,96,0.12)";
+    ctx.fillRect(0, y, w, 2);
+  }
+  ctx.fillStyle = "rgba(87,83,70,0.18)";
+  ctx.fillRect(0, h * 0.72, w, 5);
+  for (let i = 0; i < 460; i += 1) {
+    const v = 172 + (i % 36);
+    ctx.fillStyle = `rgba(${v},${v},${v - 12},0.16)`;
+    ctx.fillRect((i * 37) % w, (i * 83) % h, 1 + (i % 3), 1);
+  }
+  for (let i = 0; i < 16; i += 1) {
+    ctx.fillStyle = "rgba(95,90,72,0.08)";
+    ctx.beginPath();
+    ctx.ellipse((i * 59) % w, (i * 101) % h, 14 + (i % 5) * 4, 5 + (i % 3), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawOfficeFloor(ctx, w, h) {
+  ctx.fillStyle = "#777669";
+  ctx.fillRect(0, 0, w, h);
+  const tile = 32;
+  for (let y = 0; y < h; y += tile) {
+    for (let x = 0; x < w; x += tile) {
+      const shade = 112 + ((x + y) % 28);
+      ctx.fillStyle = `rgba(${shade},${shade},${shade - 10},0.32)`;
+      ctx.fillRect(x + 1, y + 1, tile - 2, tile - 2);
+      ctx.strokeStyle = "rgba(54,54,48,0.28)";
+      ctx.strokeRect(x, y, tile, tile);
+    }
+  }
+  for (let i = 0; i < 520; i += 1) {
+    const v = 72 + (i % 50);
+    ctx.fillStyle = `rgba(${v},${v},${v - 5},0.18)`;
+    ctx.fillRect((i * 29) % w, (i * 71) % h, 2 + (i % 4), 1);
   }
 }
 

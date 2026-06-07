@@ -4,6 +4,9 @@ import { clone as cloneSkeleton } from '../vendor/SkeletonUtils.js';
 import { LEVELS } from './levels.js';
 import { createMaterials, materialFor } from './materials.js';
 import { resumeAudioContext } from './audio.js';
+import { addHound as addHoundEntity, loadHoundModel as loadHoundModelEntity, updateHounds as updateHoundEntities } from "./entities/hound.js";
+import { addDeathmoths as addDeathmothEntities, loadDeathmothModel as loadDeathmothModelEntity, updateDeathmoths as updateDeathmothEntities } from "./entities/deathmoth.js";
+import { prepareSmilerSpawns as prepareSmilerSpawnPoints, updateSmilers as updateSmilerEntities } from "./entities/smiler.js";
 
 const mount = document.getElementById("game");
 const veil = document.getElementById("veil");
@@ -46,7 +49,7 @@ const SMILER_TRIGGER_RANGE = 6.8;
 const SMILER_ATTACK_RANGE = 1.05;
 const SMILER_RUSH_SPEED = 12.5;
 const DEATHMOTH_COUNT = 7;
-const DEATHMOTH_CONTACT_RANGE = 0.68;
+const DEATHMOTH_CONTACT_RANGE = 0.24;
 const DEATHMOTH_DAMAGE = 24;
 const DEATHMOTH_LIGHT_ATTRACT_RANGE = 24;
 const VISITED_LEVELS_STORAGE_KEY = "backrooms.visitedLevels";
@@ -54,6 +57,7 @@ const INVENTORY_STORAGE_KEY = "backrooms.inventory";
 const INTRO_INFO_STORAGE_KEY = "backrooms.seenInfoPrompt";
 const ITEM_DEFS = {
   torch: { id: "torch", name: "Torch", type: "light" },
+  almond_water: { id: "almond_water", name: "Almond Water", type: "consumable", healAmount: 28 },
 };
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
@@ -115,6 +119,11 @@ const houndAsset = {
   animations: [],
   loaded: false,
 };
+const deathmothAsset = {
+  scene: null,
+  animations: [],
+  loaded: false,
+};
 
 function loadVisitedLevels() {
   try {
@@ -148,11 +157,18 @@ function loadInventory() {
     }
     const parsed = JSON.parse(raw);
     const sourceItems = Array.isArray(parsed) ? parsed : parsed.items;
-    const itemIds = Array.isArray(sourceItems) ? sourceItems.map((item) => (typeof item === "string" ? item : item?.id)) : [];
-    const items = [...new Set(itemIds)]
-      .map((id) => ITEM_DEFS[id])
-      .filter(Boolean)
-      .map((item) => ({ ...item }));
+    const itemMap = new Map();
+    if (Array.isArray(sourceItems)) {
+      for (const source of sourceItems) {
+        const id = typeof source === "string" ? source : source?.id;
+        if (!ITEM_DEFS[id]) {
+          continue;
+        }
+        const quantity = Math.max(1, Number.parseInt(source?.quantity ?? 1, 10) || 1);
+        itemMap.set(id, (itemMap.get(id) || 0) + quantity);
+      }
+    }
+    const items = [...itemMap.entries()].map(([id, quantity]) => ({ ...ITEM_DEFS[id], quantity }));
     const equippedItemId = items.some((item) => item.id === parsed.equippedItemId) ? parsed.equippedItemId : null;
     return { items, equippedItemId };
   } catch (error) {
@@ -162,17 +178,50 @@ function loadInventory() {
 
 function saveInventory() {
   const items = state.inventory
-    .map((item) => item.id)
-    .filter((id, index, all) => ITEM_DEFS[id] && all.indexOf(id) === index);
-  const equippedItemId = items.includes(state.equippedItemId) ? state.equippedItemId : null;
-  localStorage.setItem(INVENTORY_STORAGE_KEY, JSON.stringify({ version: 1, items, equippedItemId }));
+    .filter((item) => ITEM_DEFS[item.id] && (item.quantity ?? 1) > 0)
+    .map((item) => ({ id: item.id, quantity: Math.max(1, Number.parseInt(item.quantity ?? 1, 10) || 1) }));
+  const equippedItemId = items.some((item) => item.id === state.equippedItemId) ? state.equippedItemId : null;
+  localStorage.setItem(INVENTORY_STORAGE_KEY, JSON.stringify({ version: 2, items, equippedItemId }));
 }
 
 function hasInventoryItem(itemId) {
-  return state.inventory.some((item) => item.id === itemId);
+  return state.inventory.some((item) => item.id === itemId && (item.quantity ?? 1) > 0);
 }
 
-Promise.all([loadHoundModel(), loadLevelInfo()]).finally(init);
+function addInventoryItem(itemId, quantity = 1) {
+  const def = ITEM_DEFS[itemId];
+  if (!def) {
+    return null;
+  }
+  const existing = state.inventory.find((item) => item.id === itemId);
+  if (existing) {
+    existing.quantity = (existing.quantity ?? 1) + quantity;
+    return existing;
+  }
+  const item = { ...def, quantity };
+  state.inventory.push(item);
+  return item;
+}
+
+function removeInventoryItem(itemId, quantity = 1) {
+  const item = state.inventory.find((entry) => entry.id === itemId);
+  if (!item) {
+    return false;
+  }
+  item.quantity = Math.max(0, (item.quantity ?? 1) - quantity);
+  if (item.quantity <= 0) {
+    state.inventory = state.inventory.filter((entry) => entry !== item);
+    if (state.equippedItemId === itemId) {
+      state.equippedItemId = null;
+      if (itemId === "torch") {
+        setTorchLightEnabled(false);
+      }
+    }
+  }
+  return true;
+}
+
+Promise.all([loadHoundModelEntity(), loadDeathmothModelEntity(), loadLevelInfo()]).finally(init);
 
 async function loadLevelInfo() {
   try {
@@ -200,6 +249,26 @@ function loadHoundModel() {
       undefined,
       (error) => {
         console.warn("Failed to load hound_walking.glb; using procedural fallback.", error);
+        resolve();
+      }
+    );
+  });
+}
+
+function loadDeathmothModel() {
+  return new Promise((resolve) => {
+    const loader = new GLTFLoader();
+    loader.load(
+      "assets/models/deathmoth_flying.glb",
+      (gltf) => {
+        deathmothAsset.scene = gltf.scene;
+        deathmothAsset.animations = gltf.animations || [];
+        deathmothAsset.loaded = true;
+        resolve();
+      },
+      undefined,
+      (error) => {
+        console.warn("Failed to load deathmoth_flying.glb; using procedural fallback.", error);
         resolve();
       }
     );
@@ -391,9 +460,18 @@ function update(dt) {
   updateJumpPhysics(dt);
   updateZones(dt);
   updateTorch();
-  updateHounds(dt);
-  updateSmilers(dt);
-  updateDeathmoths(dt);
+  updateHoundEntities(
+    { state, player, camera, cameraDirection, tempVector, torchRange: TORCH_RANGE, distance2D, hitsSolidForRadius, flashMessage, resetCurrentLevel },
+    dt
+  );
+  updateSmilerEntities(
+    { state, player, camera, materials, distance2D, hasClearPath2D, levelHasEntity, resetCurrentLevel, torchRange: TORCH_RANGE },
+    dt
+  );
+  updateDeathmothEntities(
+    { state, player, playerHeight: PLAYER_HEIGHT, distance2D, hasClearPath2D, hitsSolidForRadius, flashMessage, resetCurrentLevel },
+    dt
+  );
   updateLights(dt);
   updateAudio(dt);
   updateHud(dt);
@@ -598,6 +676,26 @@ function updateZones(dt) {
     }
   }
 
+  for (const trap of level.windowTraps) {
+    const distance = distance2D(trap, player.position);
+    trap.mesh.material.emissiveIntensity = 0.4 + Math.sin(clock.elapsedTime * 2.7 + trap.phase) * 0.22;
+    if (distance < trap.radius && player.damageCooldown <= 0) {
+      player.health = Math.max(0, player.health - trap.damage);
+      player.damageCooldown = 0.7;
+      const pull = new THREE.Vector3(trap.x - player.position.x, 0, trap.z - player.position.z);
+      if (pull.lengthSq() > 0.001) {
+        pull.normalize().multiplyScalar(0.34);
+        player.position.x += pull.x;
+        player.position.z += pull.z;
+      }
+      flashMessage("The window pulls at you.");
+      if (player.health <= 0) {
+        resetCurrentLevel("The office lights buzz back into place.");
+        return;
+      }
+    }
+  }
+
   for (const zone of level.exitZones) {
     if (isInsideZone(zone, player.position.x, player.position.z)) {
       if (state.levelIndex < LEVELS.length - 1) {
@@ -765,11 +863,16 @@ function renderInventory() {
     const row = document.createElement("div");
     row.className = "inventory-item";
     const label = document.createElement("strong");
-    label.textContent = item.name;
+    label.textContent = (item.quantity ?? 1) > 1 ? `${item.name} x${item.quantity}` : item.name;
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = state.equippedItemId === item.id ? "Equipped" : "Equip";
-    button.addEventListener("click", () => equipItem(item.id));
+    if (item.type === "consumable") {
+      button.textContent = "Use";
+      button.addEventListener("click", () => useItem(item.id));
+    } else {
+      button.textContent = state.equippedItemId === item.id ? "Equipped" : "Equip";
+      button.addEventListener("click", () => equipItem(item.id));
+    }
     row.append(label, button);
     inventoryItems.appendChild(row);
   }
@@ -821,6 +924,11 @@ function equipItem(itemId) {
   if (!hasInventoryItem(itemId)) {
     return;
   }
+  const item = state.inventory.find((entry) => entry.id === itemId);
+  if (item?.type === "consumable") {
+    useItem(itemId);
+    return;
+  }
   state.equippedItemId = itemId;
   if (itemId === "torch") {
     ensureTorchLight();
@@ -828,6 +936,25 @@ function equipItem(itemId) {
   }
   saveInventory();
   renderInventory();
+}
+
+function useItem(itemId) {
+  const item = state.inventory.find((entry) => entry.id === itemId);
+  if (!item || item.type !== "consumable") {
+    return;
+  }
+  if (item.healAmount) {
+    if (player.health >= 100) {
+      flashMessage("Health is already full.");
+      return;
+    }
+    player.health = Math.min(100, player.health + item.healAmount);
+    removeInventoryItem(itemId, 1);
+    saveInventory();
+    renderInventory();
+    updateHud(0);
+    flashMessage(`${item.name} restored health.`);
+  }
 }
 
 function tryPickupFocusedObject() {
@@ -849,9 +976,8 @@ function tryPickupFocusedObject() {
 
   pickup.collected = true;
   state.level.group.remove(pickup.group);
-  if (!hasInventoryItem(pickup.id)) {
-    const item = ITEM_DEFS[pickup.id] || { id: pickup.id, name: pickup.name, type: pickup.type };
-    state.inventory.push({ ...item });
+  if (ITEM_DEFS[pickup.id]) {
+    addInventoryItem(pickup.id, pickup.quantity ?? 1);
     saveInventory();
   }
   flashMessage(pickup.id === "torch" ? "Torch picked up. Open inventory with E." : `${pickup.name} picked up.`);
@@ -1109,7 +1235,7 @@ function updateDeathmoths(dt) {
       moveDeathmothToward(moth, moth.target.x, moth.target.y, moth.target.z, moth.roamSpeed, dt);
     }
 
-    animateDeathmoth(moth, attracted);
+    animateDeathmoth(moth, attracted, dt);
 
     const verticalDistance = Math.abs(moth.position.y - PLAYER_HEIGHT);
     if (distance < DEATHMOTH_CONTACT_RANGE && verticalDistance < 1.0 && moth.damageCooldown <= 0) {
@@ -1154,7 +1280,18 @@ function moveDeathmothToward(moth, x, y, z, speed, dt) {
   }
 }
 
-function animateDeathmoth(moth, attracted) {
+function animateDeathmoth(moth, attracted, dt) {
+  if (moth.modelBased) {
+    if (moth.mixer) {
+      moth.mixer.timeScale = attracted ? 1.55 : 1.0;
+      moth.mixer.update(dt);
+    }
+    moth.group.position.y = moth.position.y + Math.sin(moth.animation * 4.2 + moth.phase) * 0.08;
+    moth.modelRoot.rotation.x = Math.sin(moth.animation * 5.5) * 0.055;
+    moth.modelRoot.rotation.z = Math.sin(moth.animation * 3.2 + moth.phase) * 0.045;
+    return;
+  }
+
   const wing = Math.sin(moth.animation * (attracted ? 18 : 12)) * (attracted ? 0.82 : 0.58);
   moth.leftWing.rotation.y = -0.48 - Math.abs(wing);
   moth.rightWing.rotation.y = 0.48 + Math.abs(wing);
@@ -1381,6 +1518,7 @@ function buildLevel(def) {
     hazards: [],
     fumeZones: [],
     heatZones: [],
+    windowTraps: [],
     fogZones: [],
     exitZones: [],
     manilaZones: [],
@@ -1495,13 +1633,15 @@ function buildLevel(def) {
     addLevel2CeilingPipes(ctx, rows, width, depth, cellCenter, charAt, tile, height);
   } else if (def.theme === "level3") {
     addLevel3CeilingDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height);
+  } else if (def.theme === "level4") {
+    addLevel4OfficeDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height);
   }
 
   if (levelHasEntity(def, "smiler")) {
-    prepareSmilerSpawns(ctx, rows, width, depth, cellCenter, charAt, tile);
+    prepareSmilerSpawnPoints(ctx, rows, width, depth, cellCenter, charAt, tile, { distance2D });
   }
   if (levelHasEntity(def, "deathmoth")) {
-    addDeathmoths(ctx);
+    addDeathmothEntities(ctx, { materials, distance2D });
   }
 
   return ctx;
@@ -1522,7 +1662,15 @@ function addCellFeature(ctx, def, ch, x, z, tile, height, c, r, charAt) {
     return;
   }
 
-  if (ch === "O") {
+  if (ch === "A") {
+    addAlmondWaterPickup(ctx, x, z);
+  } else if (ch === "U") {
+    addSupplyStation(ctx, x, z, tile, height);
+  } else if (ch === "R") {
+    addOfficeFurniture(ctx, x, z, tile);
+  } else if (ch === "Q") {
+    addTrapWindow(ctx, x, z, tile, height, c, r, charAt);
+  } else if (ch === "O") {
     addPillar(ctx, x, z, height);
   } else if (ch === "C") {
     addCar(ctx, x, z, tile, ctx.rng() > 0.5 ? 0 : Math.PI * 0.5);
@@ -1533,7 +1681,7 @@ function addCellFeature(ctx, def, ch, x, z, tile, height, c, r, charAt) {
   } else if (ch === "G") {
     addFogVolume(ctx, x, z, tile, height);
   } else if (ch === "H") {
-    addHound(ctx, x, z);
+    addHoundEntity(ctx, x, z, materials);
   } else if (ch === "Y") {
     addPipeCluster(ctx, x, z, tile, height, c, r, charAt);
   } else if (ch === "N") {
@@ -1580,7 +1728,7 @@ function addBox(ctx, x, y, z, w, h, d, material, solid = true) {
 }
 
 function addLighting(ctx, def, rows, width, depth, cellCenter, charAt) {
-  const maxPointLights = def.theme === "level0" ? 28 : def.theme === "level2" ? 24 : def.theme === "level3" ? 18 : 22;
+  const maxPointLights = def.theme === "level0" ? 28 : def.theme === "level2" ? 24 : def.theme === "level3" ? 18 : def.theme === "level4" ? 26 : 22;
   let pointLights = 0;
 
   for (let r = 1; r < depth - 1; r += 1) {
@@ -1595,14 +1743,15 @@ function addLighting(ctx, def, rows, width, depth, cellCenter, charAt) {
         (def.theme === "level0" && !manila && ctx.rng() < 0.18) ||
         (def.theme === "level1" && (r % 3 === 1) && (c % 4 === 2)) ||
         (def.theme === "level2" && (r % 5 === 2) && (c % 5 === 2)) ||
-        (def.theme === "level3" && (r % 7 === 3) && (c % 8 === 4));
+        (def.theme === "level3" && (r % 7 === 3) && (c % 8 === 4)) ||
+        (def.theme === "level4" && (r % 5 === 1) && (c % 6 === 3));
       if (!shouldLight) {
         continue;
       }
 
       const fixture = addFluorescent(ctx, center.x, center.z, def.ceiling - 0.08, def.theme, manila);
       if (pointLights < maxPointLights) {
-        const light = new THREE.PointLight(manila ? 0xffa646 : def.theme === "level0" ? 0xffefac : def.theme === "level2" ? 0xffd7a0 : def.theme === "level3" ? 0xffb16a : 0xddeeff, manila ? 1.25 : def.theme === "level2" ? 0.58 : def.theme === "level3" ? 0.42 : 0.72, def.tile * 4.4, 1.6);
+        const light = new THREE.PointLight(manila ? 0xffa646 : def.theme === "level0" ? 0xffefac : def.theme === "level2" ? 0xffd7a0 : def.theme === "level3" ? 0xffb16a : def.theme === "level4" ? 0xf4f1dc : 0xddeeff, manila ? 1.25 : def.theme === "level2" ? 0.58 : def.theme === "level3" ? 0.42 : def.theme === "level4" ? 0.66 : 0.72, def.tile * 4.4, 1.6);
         light.position.set(center.x, def.ceiling - 0.45, center.z);
         light.castShadow = false;
         ctx.group.add(light);
@@ -1997,6 +2146,202 @@ function addTorchPickup(ctx, x, z) {
   ctx.pickupMeshes.push(group);
 }
 
+function addAlmondWaterPickup(ctx, x, z) {
+  const group = new THREE.Group();
+  group.position.set(x, 0.18, z);
+  group.rotation.y = ctx.rng() * Math.PI * 2;
+
+  const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.085, 0.32, 14), materials.almondWater);
+  bottle.castShadow = true;
+  bottle.position.y = 0.16;
+  group.add(bottle);
+
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.16, 12), materials.waterJug);
+  neck.position.y = 0.4;
+  group.add(neck);
+
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.035, 12), materials.torchHead);
+  cap.position.y = 0.5;
+  group.add(cap);
+
+  const pickup = {
+    id: "almond_water",
+    name: "Almond Water",
+    type: "consumable",
+    quantity: 1,
+    group,
+    collected: false,
+  };
+  group.userData.pickup = pickup;
+  group.traverse((child) => {
+    child.userData.pickup = pickup;
+  });
+  ctx.group.add(group);
+  ctx.pickups.push(pickup);
+  ctx.pickupMeshes.push(group);
+}
+
+function addSupplyStation(ctx, x, z, tile, height) {
+  if (ctx.rng() < 0.52) {
+    addWaterCooler(ctx, x, z, tile);
+  } else {
+    addVendingMachine(ctx, x, z, tile, height);
+  }
+  if (ctx.rng() < 0.72) {
+    addAlmondWaterPickup(ctx, x + (ctx.rng() - 0.5) * tile * 0.55, z + (ctx.rng() - 0.5) * tile * 0.55);
+  }
+}
+
+function addWaterCooler(ctx, x, z, tile) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = Math.floor(ctx.rng() * 4) * Math.PI * 0.5;
+
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.92, 0.38), materials.waterCooler);
+  base.position.y = 0.46;
+  base.castShadow = true;
+  base.receiveShadow = true;
+  group.add(base);
+
+  const jug = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.42, 18), materials.waterJug);
+  jug.position.y = 1.1;
+  jug.castShadow = true;
+  group.add(jug);
+
+  const tray = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.04, 0.06), materials.machinePanel);
+  tray.position.set(0, 0.66, -0.22);
+  group.add(tray);
+
+  ctx.group.add(group);
+  ctx.colliders.push({ minX: x - 0.32, maxX: x + 0.32, minZ: z - 0.32, maxZ: z + 0.32, minY: 0, maxY: 1.34 });
+}
+
+function addVendingMachine(ctx, x, z, tile, height) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = Math.floor(ctx.rng() * 4) * Math.PI * 0.5;
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.82, 1.82, 0.42), materials.vendingMachine);
+  body.position.y = 0.91;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.44, 1.18, 0.035), materials.blackedWindow);
+  panel.position.set(-0.12, 1.02, -0.23);
+  group.add(panel);
+
+  const glow = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.08, 0.04), materials.exitSign);
+  glow.position.set(-0.12, 1.58, -0.255);
+  group.add(glow);
+
+  const buttons = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.54, 0.04), materials.machinePanel);
+  buttons.position.set(0.29, 1.04, -0.255);
+  group.add(buttons);
+
+  ctx.group.add(group);
+  ctx.colliders.push({ minX: x - 0.48, maxX: x + 0.48, minZ: z - 0.34, maxZ: z + 0.34, minY: 0, maxY: Math.min(height, 1.9) });
+}
+
+function addOfficeFurniture(ctx, x, z, tile) {
+  if (ctx.rng() < 0.46) {
+    return;
+  }
+  const angle = Math.floor(ctx.rng() * 4) * Math.PI * 0.5;
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = angle;
+
+  const desk = new THREE.Mesh(new THREE.BoxGeometry(tile * 0.62, 0.12, tile * 0.34), materials.officeDesk);
+  desk.position.y = 0.68;
+  desk.castShadow = true;
+  desk.receiveShadow = true;
+  group.add(desk);
+
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.64, 0.06), materials.officeDesk);
+      leg.position.set(sx * tile * 0.25, 0.34, sz * tile * 0.12);
+      leg.castShadow = true;
+      group.add(leg);
+    }
+  }
+
+  const chair = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.12, 0.36), materials.officeChair);
+  chair.position.set(0, 0.38, tile * 0.36);
+  chair.castShadow = true;
+  group.add(chair);
+
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.48, 0.08), materials.officeChair);
+  back.position.set(0, 0.68, tile * 0.52);
+  back.castShadow = true;
+  group.add(back);
+
+  ctx.group.add(group);
+  ctx.colliders.push({ minX: x - tile * 0.34, maxX: x + tile * 0.34, minZ: z - tile * 0.25, maxZ: z + tile * 0.25, minY: 0, maxY: LOW_OBSTACLE_CLEARANCE, low: true });
+}
+
+function addTrapWindow(ctx, x, z, tile, height, c, r, charAt) {
+  const wall = getWindowWall(c, r, charAt);
+  if (!wall) {
+    return;
+  }
+  const alongX = wall === "north" || wall === "south";
+  const side = wall === "north" || wall === "west" ? -1 : 1;
+  const window = new THREE.Mesh(
+    new THREE.BoxGeometry(alongX ? tile * 0.72 : 0.035, 0.82, alongX ? 0.035 : tile * 0.72),
+    materials.trapWindow.clone()
+  );
+  window.position.set(
+    x + (!alongX ? side * (tile * 0.5 - 0.035) : 0),
+    height * 0.54,
+    z + (alongX ? side * (tile * 0.5 - 0.035) : 0)
+  );
+  ctx.group.add(window);
+  ctx.windowTraps.push({ x: window.position.x, z: window.position.z, radius: tile * 0.92, damage: 34, mesh: window, phase: ctx.rng() * Math.PI * 2 });
+}
+
+function getWindowWall(c, r, charAt) {
+  if (charAt(c, r - 1) === "#") return "north";
+  if (charAt(c + 1, r) === "#") return "east";
+  if (charAt(c, r + 1) === "#") return "south";
+  if (charAt(c - 1, r) === "#") return "west";
+  return null;
+}
+
+function addLevel4OfficeDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height) {
+  for (let r = 1; r < depth - 1; r += 1) {
+    for (let c = 1; c < width - 1; c += 1) {
+      if (charAt(c, r) === "#" || charAt(c, r) === "Q") {
+        continue;
+      }
+      if ((charAt(c, r - 1) === "#" || charAt(c + 1, r) === "#" || charAt(c, r + 1) === "#" || charAt(c - 1, r) === "#") && ctx.rng() < 0.1) {
+        const center = cellCenter(c, r);
+        addBlackedWindow(ctx, center.x, center.z, tile, height, c, r, charAt);
+      }
+    }
+  }
+}
+
+function addBlackedWindow(ctx, x, z, tile, height, c, r, charAt) {
+  const wall = getWindowWall(c, r, charAt);
+  if (!wall) {
+    return;
+  }
+  const alongX = wall === "north" || wall === "south";
+  const side = wall === "north" || wall === "west" ? -1 : 1;
+  const window = new THREE.Mesh(
+    new THREE.BoxGeometry(alongX ? tile * 0.62 : 0.03, 0.58, alongX ? 0.03 : tile * 0.62),
+    materials.blackedWindow
+  );
+  window.position.set(
+    x + (!alongX ? side * (tile * 0.5 - 0.03) : 0),
+    height * 0.58,
+    z + (alongX ? side * (tile * 0.5 - 0.03) : 0)
+  );
+  ctx.group.add(window);
+}
+
 function prepareSmilerSpawns(ctx, rows, width, depth, cellCenter, charAt, tile) {
   const minLightDistance = ctx.def.tile * 4.1;
   const minStartDistance = ctx.def.tile * 7;
@@ -2113,6 +2458,79 @@ function pickInitialDeathmothTarget(ctx, position) {
 }
 
 function createDeathmoth(ctx, x, y, z) {
+  if (deathmothAsset.scene) {
+    return createModelDeathmoth(ctx, x, y, z);
+  }
+  return createProceduralDeathmoth(ctx, x, y, z);
+}
+
+function createModelDeathmoth(ctx, x, y, z) {
+  const group = new THREE.Group();
+  group.position.set(x, y, z);
+  group.rotation.y = ctx.rng() * Math.PI * 2;
+
+  const model = cloneSkeleton(deathmothAsset.scene);
+  const mixer = deathmothAsset.animations.length > 0 ? new THREE.AnimationMixer(model) : null;
+  const actions = [];
+
+  model.traverse((object) => {
+    if (object.isMesh) {
+      object.castShadow = true;
+      object.receiveShadow = true;
+      if (object.material) {
+        object.material = Array.isArray(object.material)
+          ? object.material.map((material) => normalizeDeathmothModelMaterial(material))
+          : normalizeDeathmothModelMaterial(object.material);
+      }
+    }
+  });
+
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const targetSize = 0.025 + ctx.rng() * 0.008;
+  const scale = targetSize / Math.max(size.x, size.y, size.z, 0.001);
+  model.scale.setScalar(scale);
+  model.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+
+  group.add(model);
+
+  if (mixer) {
+    for (const clip of deathmothAsset.animations) {
+      const action = mixer.clipAction(clip);
+      action.reset().play();
+      actions.push(action);
+    }
+  }
+
+  return {
+    group,
+    modelRoot: model,
+    mixer,
+    actions,
+    position: new THREE.Vector3(x, y, z),
+    target: null,
+    roamSpeed: 1.55,
+    attractedSpeed: 5.4,
+    damageCooldown: 0,
+    animation: ctx.rng() * Math.PI * 2,
+    phase: ctx.rng() * Math.PI * 2,
+    modelBased: true,
+  };
+}
+
+function normalizeDeathmothModelMaterial(sourceMaterial) {
+  const material = sourceMaterial.clone();
+  material.side = THREE.DoubleSide;
+  material.roughness = 0.78;
+  material.metalness = 0;
+  material.envMapIntensity = 0.15;
+  material.toneMapped = true;
+  material.needsUpdate = true;
+  return material;
+}
+
+function createProceduralDeathmoth(ctx, x, y, z) {
   const group = new THREE.Group();
   group.position.set(x, y, z);
   group.rotation.y = ctx.rng() * Math.PI * 2;
@@ -2176,6 +2594,7 @@ function createDeathmoth(ctx, x, y, z) {
     damageCooldown: 0,
     animation: ctx.rng() * Math.PI * 2,
     phase: ctx.rng() * Math.PI * 2,
+    modelBased: false,
   };
 }
 

@@ -52,5 +52,43 @@
         ]
       }
     ]
+  },
+  "3": {
+    "title": "Level 3",
+    "sections": [
+      {
+        "heading": "Objective",
+        "text": "Navigate the long industrial hallways and find one of the elevators leading deeper into the complex."
+      },
+      {
+        "heading": "Survival",
+        "items": [
+          "Level 3 is larger, darker, and louder than the previous levels, so plan retreats before moving into long corridors.",
+          "Fume vents can activate without warning. Move away from leaking pipes quickly to avoid taking damage.",
+          "Ceiling heat zones glow before they become dangerous, but once active they remain hot for a long time.",
+          "Hounds roam this level and can be slowed by pointing the equipped torch at them.",
+          "Smilers appear on wall faces in dark areas. Keep your distance and avoid shining the torch at them."
+        ]
+      }
+    ]
+  },
+  "4": {
+    "title": "Level 4",
+    "sections": [
+      {
+        "heading": "Objective",
+        "text": "Search the abandoned office floor for an office stairwell or elevator exit."
+      },
+      {
+        "heading": "Survival",
+        "items": [
+          "Level 4 is safer than the industrial levels, but it is still not harmless.",
+          "Almond Water bottles can be picked up and consumed from the inventory to restore health.",
+          "Most blacked-out windows are only unsettling. Uncovered windows are traps and will pull at you if you stand too close.",
+          "Hounds are rare here, but the open office corridors make it easy to be seen from farther away.",
+          "Use this level to recover before moving on."
+        ]
+      }
+    ]
   }
 }
