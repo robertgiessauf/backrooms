@@ -90,5 +90,42 @@
         ]
       }
     ]
+  },
+  "5": {
+    "title": "Level 5",
+    "sections": [
+      {
+        "heading": "Objective",
+        "text": "Cross the Main Hall and push deep into the Boiler Room to find the exit toward the next level."
+      },
+      {
+        "heading": "Survival",
+        "items": [
+          "The hotel halls are cleaner and quieter than they should be. Do not let the furniture and music make you stop moving.",
+          "Deathmoths nest throughout Level 5 and are more common here than in earlier levels.",
+          "The Boiler Room is tighter, hotter, and filled with steam vents and old machinery.",
+          "Almond Water can still be found in the Main Hall. Stock up before entering the boiler side.",
+          "The torch helps with hounds, but active light can attract deathmoths."
+        ]
+      }
+    ]
+  },
+  "6": {
+    "title": "Level 6",
+    "sections": [
+      {
+        "heading": "Objective",
+        "text": "Move through the dark maze and find the faint exit signal. The torch will not pierce this level."
+      },
+      {
+        "heading": "Survival",
+        "items": [
+          "Short echo pulses occasionally reveal scraps of wall, floor, or the exit marker for a moment.",
+          "Move carefully. Low wire traps are almost invisible until you are near them.",
+          "The level is navigable, but visibility is intentionally unreliable. Listen, count turns, and use the pulse flashes to keep direction.",
+          "Classification 5 means this level is meant to feel hostile even without visible entities."
+        ]
+      }
+    ]
   }
 }

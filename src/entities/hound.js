@@ -295,19 +295,20 @@ function addProceduralHound(ctx, x, z, materials) {
 
 function normalizeHoundModelMaterial(sourceMaterial) {
   const material = sourceMaterial.clone();
-  material.side = THREE.FrontSide;
-  material.color?.set(0x777777);
-  material.emissive?.set(0x000000);
-  material.emissiveIntensity = 0;
+  material.side = sourceMaterial.side ?? THREE.FrontSide;
+  if (!material.map) {
+    material.color?.set(0x777777);
+  }
+  material.emissiveIntensity = material.emissiveMap ? 0.08 : 0;
   material.metalness = 0;
-  material.roughness = 0.86;
+  material.roughness = Math.max(material.roughness ?? 0.86, 0.72);
   material.envMapIntensity = 0;
   material.toneMapped = true;
   if (material.specularColor) {
-    material.specularColor.set(0x222222);
+    material.specularColor.set(0x333333);
   }
   if ("specularIntensity" in material) {
-    material.specularIntensity = 0.12;
+    material.specularIntensity = 0.08;
   }
   material.needsUpdate = true;
   return material;

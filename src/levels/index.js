@@ -3,6 +3,8 @@ import { createLevel1Map } from "./level1.js";
 import { createLevel2Map } from "./level2.js";
 import { createLevel3Map } from "./level3.js";
 import { createLevel4Map } from "./level4.js";
+import { createLevel5Map } from "./level5.js";
+import { createLevel6Map } from "./level6.js";
 
 export const LEVELS = [
   {
@@ -81,5 +83,37 @@ export const LEVELS = [
     createMap: createLevel4Map,
     theme: "level4",
     entities: ["hound"],
+  },
+  {
+    id: "5",
+    name: "Level 5",
+    classification: 2,
+    classificationLabel: "2",
+    startFacing: Math.PI * 0.5,
+    ceiling: 3.35,
+    tile: 2.9,
+    fog: { color: 0x3b241f, near: 13, far: 48 },
+    ambient: 0xd0a066,
+    ambientIntensity: 0.44,
+    hum: { base: 45, buzz: 88, volume: 0.052 },
+    createMap: createLevel5Map,
+    theme: "level5",
+    entities: ["hound", "deathmoth"],
+    deathmothCount: 12,
+  },
+  {
+    id: "6",
+    name: "Level 6",
+    classification: 5,
+    classificationLabel: "5",
+    startFacing: Math.PI * 0.5,
+    ceiling: 2.65,
+    tile: 2.35,
+    fog: { color: 0x000000, near: 0.5, far: 9 },
+    ambient: 0x020202,
+    ambientIntensity: 0.012,
+    hum: { base: 24, buzz: 36, volume: 0.008 },
+    createMap: createLevel6Map,
+    theme: "level6",
   },
 ];

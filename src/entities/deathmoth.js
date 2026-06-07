@@ -86,7 +86,7 @@ export function addDeathmoths(ctx, deps) {
     return !pointHitsCollider(ctx, point.x, point.z, 0.7);
   });
   const pool = candidates.length > 0 ? candidates : ctx.walkables;
-  const count = Math.min(DEATHMOTH_COUNT, pool.length);
+  const count = Math.min(ctx.def.deathmothCount ?? DEATHMOTH_COUNT, pool.length);
 
   for (let i = 0; i < count; i += 1) {
     const point = pool[Math.floor(ctx.rng() * pool.length)];
@@ -254,11 +254,21 @@ function createModelDeathmoth(ctx, x, y, z) {
 
 function normalizeDeathmothModelMaterial(sourceMaterial) {
   const material = sourceMaterial.clone();
-  material.side = THREE.DoubleSide;
-  material.roughness = 0.78;
+  material.side = sourceMaterial.side ?? THREE.DoubleSide;
+  if (!material.map) {
+    material.color?.set(0x8b6a3f);
+  }
+  material.emissiveIntensity = material.emissiveMap ? 0.06 : 0;
+  material.roughness = Math.max(material.roughness ?? 0.78, 0.62);
   material.metalness = 0;
-  material.envMapIntensity = 0.15;
+  material.envMapIntensity = 0.08;
   material.toneMapped = true;
+  if (material.specularColor) {
+    material.specularColor.set(0x333333);
+  }
+  if ("specularIntensity" in material) {
+    material.specularIntensity = 0.07;
+  }
   material.needsUpdate = true;
   return material;
 }

@@ -1,12 +1,11 @@
 ﻿import * as THREE from "../vendor/three.module.js";
-import { GLTFLoader } from "../vendor/GLTFLoader.js";
-import { clone as cloneSkeleton } from '../vendor/SkeletonUtils.js';
 import { LEVELS } from './levels.js';
 import { createMaterials, materialFor } from './materials.js';
 import { resumeAudioContext } from './audio.js';
 import { addHound as addHoundEntity, loadHoundModel as loadHoundModelEntity, updateHounds as updateHoundEntities } from "./entities/hound.js";
 import { addDeathmoths as addDeathmothEntities, loadDeathmothModel as loadDeathmothModelEntity, updateDeathmoths as updateDeathmothEntities } from "./entities/deathmoth.js";
 import { prepareSmilerSpawns as prepareSmilerSpawnPoints, updateSmilers as updateSmilerEntities } from "./entities/smiler.js";
+import { createAlmondWaterModel, loadAlmondWaterModel } from "./items/almondWater.js";
 
 const mount = document.getElementById("game");
 const veil = document.getElementById("veil");
@@ -38,20 +37,6 @@ const LOW_OBSTACLE_CLEARANCE = 0.82;
 const LOOK_SPEED = 0.0021;
 const PICKUP_RANGE = 3.1;
 const TORCH_RANGE = 16;
-const HOUND_ALERT_RANGE = 20;
-const HOUND_ATTACK_RANGE = 1.2;
-const HOUND_ATTACK_DAMAGE = 40;
-const HOUND_TORCH_STUN_SECONDS = 4.2;
-const HOUND_STUN_CRAWL_SPEED = 0.28;
-const SMILER_MAX_ACTIVE = 2;
-const SMILER_SPAWN_MIN_RANGE = 15;
-const SMILER_TRIGGER_RANGE = 6.8;
-const SMILER_ATTACK_RANGE = 1.05;
-const SMILER_RUSH_SPEED = 12.5;
-const DEATHMOTH_COUNT = 7;
-const DEATHMOTH_CONTACT_RANGE = 0.24;
-const DEATHMOTH_DAMAGE = 24;
-const DEATHMOTH_LIGHT_ATTRACT_RANGE = 24;
 const VISITED_LEVELS_STORAGE_KEY = "backrooms.visitedLevels";
 const INVENTORY_STORAGE_KEY = "backrooms.inventory";
 const INTRO_INFO_STORAGE_KEY = "backrooms.seenInfoPrompt";
@@ -114,17 +99,6 @@ const state = {
 };
 
 const materials = createMaterials();
-const houndAsset = {
-  scene: null,
-  animations: [],
-  loaded: false,
-};
-const deathmothAsset = {
-  scene: null,
-  animations: [],
-  loaded: false,
-};
-
 function loadVisitedLevels() {
   try {
     const raw = localStorage.getItem(VISITED_LEVELS_STORAGE_KEY);
@@ -221,7 +195,7 @@ function removeInventoryItem(itemId, quantity = 1) {
   return true;
 }
 
-Promise.all([loadHoundModelEntity(), loadDeathmothModelEntity(), loadLevelInfo()]).finally(init);
+Promise.all([loadHoundModelEntity(), loadDeathmothModelEntity(), loadAlmondWaterModel(), loadLevelInfo()]).finally(init);
 
 async function loadLevelInfo() {
   try {
@@ -233,46 +207,6 @@ async function loadLevelInfo() {
     console.warn("Failed to load level-info.json.", error);
     state.levelInfo = {};
   }
-}
-
-function loadHoundModel() {
-  return new Promise((resolve) => {
-    const loader = new GLTFLoader();
-    loader.load(
-      "assets/models/hound_walking.glb",
-      (gltf) => {
-        houndAsset.scene = gltf.scene;
-        houndAsset.animations = gltf.animations || [];
-        houndAsset.loaded = true;
-        resolve();
-      },
-      undefined,
-      (error) => {
-        console.warn("Failed to load hound_walking.glb; using procedural fallback.", error);
-        resolve();
-      }
-    );
-  });
-}
-
-function loadDeathmothModel() {
-  return new Promise((resolve) => {
-    const loader = new GLTFLoader();
-    loader.load(
-      "assets/models/deathmoth_flying.glb",
-      (gltf) => {
-        deathmothAsset.scene = gltf.scene;
-        deathmothAsset.animations = gltf.animations || [];
-        deathmothAsset.loaded = true;
-        resolve();
-      },
-      undefined,
-      (error) => {
-        console.warn("Failed to load deathmoth_flying.glb; using procedural fallback.", error);
-        resolve();
-      }
-    );
-  });
 }
 
 function init() {
@@ -459,6 +393,7 @@ function update(dt) {
   updateMovement(dt);
   updateJumpPhysics(dt);
   updateZones(dt);
+  updateLevel6Darkness(dt);
   updateTorch();
   updateHoundEntities(
     { state, player, camera, cameraDirection, tempVector, torchRange: TORCH_RANGE, distance2D, hitsSolidForRadius, flashMessage, resetCurrentLevel },
@@ -696,6 +631,27 @@ function updateZones(dt) {
     }
   }
 
+  for (const wire of level.wireTraps) {
+    wire.cooldown = Math.max(0, (wire.cooldown || 0) - dt);
+    wire.mesh.material.opacity = 0.13 + Math.sin(clock.elapsedTime * 1.7 + wire.phase) * 0.035;
+    if (distance2D(wire, player.position) < wire.radius && wire.cooldown <= 0 && player.damageCooldown <= 0) {
+      player.health = Math.max(0, player.health - wire.damage);
+      player.damageCooldown = 0.85;
+      wire.cooldown = 2.6;
+      const push = new THREE.Vector3(player.position.x - wire.x, 0, player.position.z - wire.z);
+      if (push.lengthSq() > 0.001) {
+        push.normalize().multiplyScalar(0.52);
+        player.position.x += push.x;
+        player.position.z += push.z;
+      }
+      flashMessage("Something catches your legs in the dark.");
+      if (player.health <= 0) {
+        resetCurrentLevel("The dark returns you to the start.");
+        return;
+      }
+    }
+  }
+
   for (const zone of level.exitZones) {
     if (isInsideZone(zone, player.position.x, player.position.z)) {
       if (state.levelIndex < LEVELS.length - 1) {
@@ -725,6 +681,26 @@ function updateLights(dt) {
 
   for (const fan of state.level.fans) {
     fan.rotation.y += dt * 2.4;
+  }
+}
+
+function updateLevel6Darkness(dt) {
+  if (state.level?.def?.theme !== "level6") {
+    return;
+  }
+
+  const pulseCycle = 3.9;
+  const pulseWindow = 0.58;
+  const cycle = clock.elapsedTime % pulseCycle;
+  const pulse = cycle < pulseWindow ? Math.sin((cycle / pulseWindow) * Math.PI) : 0;
+
+  for (const marker of state.level.darkEchoes) {
+    const distance = distance2D(marker, player.position);
+    const proximity = THREE.MathUtils.clamp(1 - distance / marker.radius, 0, 1);
+    const base = marker.kind === "exit" ? 0.025 * proximity : 0;
+    const opacity = base + pulse * proximity * marker.strength;
+    marker.mesh.material.opacity = opacity;
+    marker.mesh.visible = opacity > 0.006;
   }
 }
 
@@ -1011,6 +987,11 @@ function ensureTorchLight() {
 }
 
 function updateTorch() {
+  if (state.level?.def?.theme === "level6") {
+    setTorchLightEnabled(false);
+    return;
+  }
+
   if (state.equippedItemId !== "torch" || !state.torchLight || !state.torchTarget) {
     setTorchLightEnabled(false);
     return;
@@ -1039,306 +1020,8 @@ function setTorchLightEnabled(enabled) {
   }
 }
 
-function updateHounds(dt) {
-  if (!state.level || state.level.hounds.length === 0 || state.inventoryOpen || player.ended) {
-    return;
-  }
-
-  for (const hound of state.level.hounds) {
-    hound.attackCooldown = Math.max(0, hound.attackCooldown - dt);
-    const dx = player.position.x - hound.position.x;
-    const dz = player.position.z - hound.position.z;
-    const distance = Math.sqrt(dx * dx + dz * dz);
-    const lit = isHoundLit(hound, distance);
-
-    if (lit) {
-      hound.freezeTimer = HOUND_TORCH_STUN_SECONDS;
-    } else {
-      hound.freezeTimer = Math.max(0, hound.freezeTimer - dt);
-    }
-
-    if (hound.freezeTimer > 0) {
-      hound.mode = "frozen";
-      moveHoundToward(hound, player.position.x, player.position.z, HOUND_STUN_CRAWL_SPEED, dt);
-      animateHound(hound, dt, true);
-      continue;
-    }
-
-    if (distance < HOUND_ALERT_RANGE || hound.mode === "hunt") {
-      hound.mode = "hunt";
-      moveHoundToward(hound, player.position.x, player.position.z, hound.huntSpeed, dt);
-      if (distance < HOUND_ATTACK_RANGE && hound.attackCooldown <= 0) {
-        player.health = Math.max(0, player.health - HOUND_ATTACK_DAMAGE);
-        hound.attackCooldown = 1.2;
-        flashMessage("The hound bites hard.");
-        if (player.health <= 0) {
-          resetCurrentLevel("You wake on the cold concrete.");
-          return;
-        }
-      }
-    } else {
-      hound.mode = "roam";
-      if (!hound.target || distance2D(hound.target, hound.position) < 0.8) {
-        hound.target = pickHoundRoamTarget();
-      }
-      moveHoundToward(hound, hound.target.x, hound.target.z, hound.roamSpeed, dt);
-    }
-
-    animateHound(hound, dt, false);
-  }
-}
-
-function isHoundLit(hound, distance) {
-  if (state.equippedItemId !== "torch" || distance > TORCH_RANGE * 0.78) {
-    return false;
-  }
-
-  camera.getWorldDirection(cameraDirection);
-  tempVector.set(hound.position.x - player.position.x, 0.15, hound.position.z - player.position.z).normalize();
-  return cameraDirection.dot(tempVector) > 0.88;
-}
-
-function updateSmilers(dt) {
-  if (!state.level || !levelHasEntity(state.level.def, "smiler") || state.inventoryOpen || player.ended) {
-    return;
-  }
-
-  for (let i = state.level.smilers.length - 1; i >= 0; i -= 1) {
-    const smiler = state.level.smilers[i];
-    smiler.age += dt;
-    smiler.animation += dt;
-
-    const distance = distance2D(smiler.position, player.position);
-    const lit = isSmilerLit(smiler, distance);
-    const inTriggerRange = distance < SMILER_TRIGGER_RANGE && hasClearPath2D(player.position.x, player.position.z, smiler.position.x, smiler.position.z, -0.06);
-
-    if (lit || inTriggerRange) {
-      smiler.mode = "rush";
-    }
-
-    if (smiler.mode === "rush") {
-      moveSmilerToward(smiler, player.position.x, player.position.z, SMILER_RUSH_SPEED, dt);
-      const nextDistance = distance2D(smiler.position, player.position);
-      animateSmiler(smiler, nextDistance);
-      if (nextDistance < SMILER_ATTACK_RANGE) {
-        player.health = 0;
-        resetCurrentLevel("The smile reaches you from the dark.");
-        return;
-      }
-      continue;
-    }
-
-    animateSmiler(smiler, distance);
-
-    if (smiler.age >= smiler.lifetime) {
-      removeSmiler(smiler);
-    }
-  }
-
-  state.level.smilerSpawnTimer -= dt;
-  if (state.level.smilerSpawnTimer <= 0) {
-    if (state.level.smilers.length < SMILER_MAX_ACTIVE) {
-      spawnSmiler();
-    }
-    state.level.smilerSpawnTimer = 6 + state.level.rng() * 12;
-  }
-}
-
-function isSmilerLit(smiler, distance) {
-  if (state.equippedItemId !== "torch" || distance > TORCH_RANGE * 0.95) {
-    return false;
-  }
-  return true;
-
-  // camera.getWorldDirection(cameraDirection);
-  // tempVector.set(smiler.position.x - player.position.x, smiler.eyeHeight - PLAYER_HEIGHT, smiler.position.z - player.position.z).normalize();
-  // return cameraDirection.dot(tempVector) > 0.91 && hasClearPath2D(player.position.x, player.position.z, smiler.position.x, smiler.position.z, 0.08);
-}
-
-function spawnSmiler() {
-  const level = state.level;
-  if (!level.smilerSpawnPoints.length) {
-    return;
-  }
-
-  const candidates = level.smilerSpawnPoints.filter((point) => {
-    const distance = distance2D(point, player.position);
-    return distance >= SMILER_SPAWN_MIN_RANGE && distance < 62;
-  });
-  const pool = candidates.length > 0 ? candidates : level.smilerSpawnPoints.filter((point) => distance2D(point, player.position) >= SMILER_SPAWN_MIN_RANGE);
-  if (!pool.length) {
-    return;
-  }
-
-  const point = pool[Math.floor(level.rng() * pool.length)];
-  const smiler = createSmiler(point.x, point.z, point.rotationY, 10 + level.rng() * 20, level.rng);
-  level.smilers.push(smiler);
-  level.group.add(smiler.group);
-}
-
-function removeSmiler(smiler) {
-  const level = state.level;
-  const index = level.smilers.indexOf(smiler);
-  if (index >= 0) {
-    level.smilers.splice(index, 1);
-  }
-  level.group.remove(smiler.group);
-}
-
-function moveSmilerToward(smiler, x, z, speed, dt) {
-  const dx = x - smiler.position.x;
-  const dz = z - smiler.position.z;
-  const length = Math.sqrt(dx * dx + dz * dz);
-  if (length < 0.001) {
-    return;
-  }
-
-  const step = Math.min(speed * dt, length);
-  smiler.position.x += (dx / length) * step;
-  smiler.position.z += (dz / length) * step;
-  smiler.group.position.copy(smiler.position);
-}
-
-function animateSmiler(smiler, distance) {
-  smiler.face.scale.setScalar(smiler.mode === "rush" ? 1.04 : 1);
-  if (smiler.mode === "rush") {
-    smiler.group.lookAt(camera.position.x, smiler.group.position.y, camera.position.z);
-  } else {
-    smiler.group.rotation.y = smiler.wallRotationY;
-  }
-  smiler.shadow.material.opacity = smiler.mode === "rush" ? 0.58 : 0.46;
-  smiler.group.position.y = smiler.eyeHeight + Math.sin(smiler.animation * 0.35) * 0.025 + THREE.MathUtils.clamp((18 - distance) * 0.006, 0, 0.09);
-}
-
-function updateDeathmoths(dt) {
-  if (!state.level || !levelHasEntity(state.level.def, "deathmoth") || state.inventoryOpen || player.ended) {
-    return;
-  }
-
-  const torchOn = state.equippedItemId === "torch";
-  for (const moth of state.level.deathmoths) {
-    moth.animation += dt;
-    moth.damageCooldown = Math.max(0, moth.damageCooldown - dt);
-
-    const distance = distance2D(moth.position, player.position);
-    const attracted =
-      torchOn &&
-      distance < DEATHMOTH_LIGHT_ATTRACT_RANGE &&
-      hasClearPath2D(player.position.x, player.position.z, moth.position.x, moth.position.z, 0.08);
-
-    if (attracted) {
-      moveDeathmothToward(moth, player.position.x, PLAYER_HEIGHT + 0.15, player.position.z, moth.attractedSpeed, dt);
-    } else {
-      if (!moth.target || distance3D(moth.position, moth.target) < 0.8) {
-        moth.target = pickDeathmothTarget(moth);
-      }
-      moveDeathmothToward(moth, moth.target.x, moth.target.y, moth.target.z, moth.roamSpeed, dt);
-    }
-
-    animateDeathmoth(moth, attracted, dt);
-
-    const verticalDistance = Math.abs(moth.position.y - PLAYER_HEIGHT);
-    if (distance < DEATHMOTH_CONTACT_RANGE && verticalDistance < 1.0 && moth.damageCooldown <= 0) {
-      player.health = Math.max(0, player.health - DEATHMOTH_DAMAGE);
-      moth.damageCooldown = 0.85;
-      flashMessage("The moth burns against your skin.");
-      if (player.health <= 0) {
-        resetCurrentLevel("The wings fade into the tunnel dark.");
-        return;
-      }
-    }
-  }
-}
-
-function distance3D(a, b) {
-  const dx = a.x - b.x;
-  const dy = (a.y || 0) - (b.y || 0);
-  const dz = a.z - b.z;
-  return Math.sqrt(dx * dx + dy * dy + dz * dz);
-}
-
-function moveDeathmothToward(moth, x, y, z, speed, dt) {
-  const dx = x - moth.position.x;
-  const dy = y - moth.position.y;
-  const dz = z - moth.position.z;
-  const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
-  if (length < 0.001) {
-    return;
-  }
-
-  const step = Math.min(speed * dt, length);
-  const nextX = moth.position.x + (dx / length) * step;
-  const nextY = THREE.MathUtils.clamp(moth.position.y + (dy / length) * step, 0.95, state.level.def.ceiling - 0.45);
-  const nextZ = moth.position.z + (dz / length) * step;
-
-  if (!hitsSolidForRadius(nextX, nextZ, 0.24)) {
-    moth.position.set(nextX, nextY, nextZ);
-    moth.group.position.copy(moth.position);
-    moth.group.rotation.y = Math.atan2(dx, dz);
-  } else {
-    moth.target = null;
-  }
-}
-
-function animateDeathmoth(moth, attracted, dt) {
-  if (moth.modelBased) {
-    if (moth.mixer) {
-      moth.mixer.timeScale = attracted ? 1.55 : 1.0;
-      moth.mixer.update(dt);
-    }
-    moth.group.position.y = moth.position.y + Math.sin(moth.animation * 4.2 + moth.phase) * 0.08;
-    moth.modelRoot.rotation.x = Math.sin(moth.animation * 5.5) * 0.055;
-    moth.modelRoot.rotation.z = Math.sin(moth.animation * 3.2 + moth.phase) * 0.045;
-    return;
-  }
-
-  const wing = Math.sin(moth.animation * (attracted ? 18 : 12)) * (attracted ? 0.82 : 0.58);
-  moth.leftWing.rotation.y = -0.48 - Math.abs(wing);
-  moth.rightWing.rotation.y = 0.48 + Math.abs(wing);
-  moth.leftLowerWing.rotation.y = -0.38 - Math.abs(wing) * 0.72;
-  moth.rightLowerWing.rotation.y = 0.38 + Math.abs(wing) * 0.72;
-  moth.group.position.y = moth.position.y + Math.sin(moth.animation * 4.2 + moth.phase) * 0.08;
-  moth.body.rotation.x = Math.sin(moth.animation * 5.5) * 0.08;
-}
-
-function pickDeathmothTarget(moth) {
-  const level = state.level;
-  if (!level.walkables.length) {
-    return { x: moth.position.x, y: moth.position.y, z: moth.position.z };
-  }
-  const point = level.walkables[Math.floor(level.rng() * level.walkables.length)];
-  return {
-    x: point.x,
-    y: 1.15 + level.rng() * Math.max(0.55, level.def.ceiling - 1.75),
-    z: point.z,
-  };
-}
-
 function levelHasEntity(def, entityId) {
   return Array.isArray(def.entities) && def.entities.includes(entityId);
-}
-
-function moveHoundToward(hound, x, z, speed, dt) {
-  const dx = x - hound.position.x;
-  const dz = z - hound.position.z;
-  const length = Math.sqrt(dx * dx + dz * dz);
-  if (length < 0.001) {
-    return;
-  }
-
-  const step = Math.min(speed * dt, length);
-  const nx = dx / length;
-  const nz = dz / length;
-  const nextX = hound.position.x + nx * step;
-  const nextZ = hound.position.z + nz * step;
-
-  if (!hitsSolidForRadius(nextX, nextZ, 0.46)) {
-    hound.position.set(nextX, 0, nextZ);
-    hound.group.position.copy(hound.position);
-    hound.group.rotation.y = Math.atan2(nx, nz);
-  } else {
-    hound.target = pickHoundRoamTarget();
-  }
 }
 
 function hitsSolidForRadius(x, z, radius) {
@@ -1403,40 +1086,6 @@ function clipSegmentAxis(origin, delta, min, max, commit, tMin, tMax) {
   }
   commit(nextMin, nextMax);
   return true;
-}
-
-function pickHoundRoamTarget() {
-  if (!state.level.walkables.length) {
-    return { x: player.position.x, z: player.position.z };
-  }
-  const index = Math.floor(state.level.rng() * state.level.walkables.length);
-  return state.level.walkables[index];
-}
-
-function animateHound(hound, dt, frozen) {
-  if (hound.modelBased) {
-    setHoundAnimation(hound, frozen ? "frozen" : hound.mode);
-    if (hound.mixer) {
-      hound.mixer.timeScale = frozen ? 0.12 : hound.mode === "hunt" ? 1.35 : 0.82;
-      hound.mixer.update(dt);
-    }
-    hound.animation += dt * (frozen ? 1.2 : hound.mode === "hunt" ? 7.5 : 3.8);
-    if (!hound.mixer) {
-      const crawl = Math.sin(hound.animation);
-      hound.modelRoot.position.y = Math.abs(crawl) * (frozen ? 0.01 : 0.045);
-      hound.modelRoot.rotation.x = frozen ? -0.04 : -0.08 + crawl * 0.035;
-      hound.modelRoot.rotation.z = frozen ? 0 : Math.sin(hound.animation * 0.5) * 0.025;
-    }
-    return;
-  }
-
-  hound.animation += dt * (frozen ? 1.8 : hound.mode === "hunt" ? 9 : 4.5);
-  const stride = Math.sin(hound.animation) * (frozen ? 0.025 : 0.18);
-  hound.body.position.y = 0.88 + Math.abs(stride) * 0.08;
-  for (let i = 0; i < hound.legs.length; i += 1) {
-    hound.legs[i].rotation.x = (i % 2 === 0 ? stride : -stride) + hound.legBaseRotations[i];
-  }
-  hound.head.rotation.x = frozen ? -0.22 : -0.1 + Math.sin(hound.animation * 0.7) * 0.08;
 }
 
 function loadLevel(index, initial = false) {
@@ -1519,6 +1168,7 @@ function buildLevel(def) {
     fumeZones: [],
     heatZones: [],
     windowTraps: [],
+    wireTraps: [],
     fogZones: [],
     exitZones: [],
     manilaZones: [],
@@ -1530,6 +1180,7 @@ function buildLevel(def) {
     smilerSpawnPoints: [],
     smilerSpawnTimer: 4,
     deathmoths: [],
+    darkEchoes: [],
     walkables: [],
     flickerLights: [],
     fans: [],
@@ -1635,6 +1286,10 @@ function buildLevel(def) {
     addLevel3CeilingDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height);
   } else if (def.theme === "level4") {
     addLevel4OfficeDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height);
+  } else if (def.theme === "level5") {
+    addLevel5HotelDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height);
+  } else if (def.theme === "level6") {
+    addLevel6DarknessDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height);
   }
 
   if (levelHasEntity(def, "smiler")) {
@@ -1698,6 +1353,16 @@ function addCellFeature(ctx, def, ch, x, z, tile, height, c, r, charAt) {
     addCrates(ctx, x, z, tile);
   } else if (ch === "D") {
     addDebris(ctx, x, z, tile);
+  } else if (ch === "Z") {
+    addHotelFurniture(ctx, x, z, tile);
+  } else if (ch === "I") {
+    addHotelPainting(ctx, x, z, tile, height, c, r, charAt);
+  } else if (ch === "L") {
+    addHotelDoor(ctx, x, z, tile, height, c, r, charAt);
+  } else if (ch === "J") {
+    addGramophone(ctx, x, z, tile);
+  } else if (ch === "w") {
+    addLevel6WireTrap(ctx, x, z, tile);
   }
 }
 
@@ -1728,7 +1393,7 @@ function addBox(ctx, x, y, z, w, h, d, material, solid = true) {
 }
 
 function addLighting(ctx, def, rows, width, depth, cellCenter, charAt) {
-  const maxPointLights = def.theme === "level0" ? 28 : def.theme === "level2" ? 24 : def.theme === "level3" ? 18 : def.theme === "level4" ? 26 : 22;
+  const maxPointLights = def.theme === "level0" ? 28 : def.theme === "level2" ? 24 : def.theme === "level3" ? 18 : def.theme === "level4" ? 26 : def.theme === "level5" ? 24 : 22;
   let pointLights = 0;
 
   for (let r = 1; r < depth - 1; r += 1) {
@@ -1744,14 +1409,15 @@ function addLighting(ctx, def, rows, width, depth, cellCenter, charAt) {
         (def.theme === "level1" && (r % 3 === 1) && (c % 4 === 2)) ||
         (def.theme === "level2" && (r % 5 === 2) && (c % 5 === 2)) ||
         (def.theme === "level3" && (r % 7 === 3) && (c % 8 === 4)) ||
-        (def.theme === "level4" && (r % 5 === 1) && (c % 6 === 3));
+        (def.theme === "level4" && (r % 5 === 1) && (c % 6 === 3)) ||
+        (def.theme === "level5" && (r % 4 === 1) && (c % 7 === 3));
       if (!shouldLight) {
         continue;
       }
 
       const fixture = addFluorescent(ctx, center.x, center.z, def.ceiling - 0.08, def.theme, manila);
       if (pointLights < maxPointLights) {
-        const light = new THREE.PointLight(manila ? 0xffa646 : def.theme === "level0" ? 0xffefac : def.theme === "level2" ? 0xffd7a0 : def.theme === "level3" ? 0xffb16a : def.theme === "level4" ? 0xf4f1dc : 0xddeeff, manila ? 1.25 : def.theme === "level2" ? 0.58 : def.theme === "level3" ? 0.42 : def.theme === "level4" ? 0.66 : 0.72, def.tile * 4.4, 1.6);
+        const light = new THREE.PointLight(manila ? 0xffa646 : def.theme === "level0" ? 0xffefac : def.theme === "level2" ? 0xffd7a0 : def.theme === "level3" ? 0xffb16a : def.theme === "level4" ? 0xf4f1dc : def.theme === "level5" ? 0xffba68 : 0xddeeff, manila ? 1.25 : def.theme === "level2" ? 0.58 : def.theme === "level3" ? 0.42 : def.theme === "level4" ? 0.66 : def.theme === "level5" ? 0.52 : 0.72, def.tile * 4.4, 1.6);
         light.position.set(center.x, def.ceiling - 0.45, center.z);
         light.castShadow = false;
         ctx.group.add(light);
@@ -2147,22 +1813,9 @@ function addTorchPickup(ctx, x, z) {
 }
 
 function addAlmondWaterPickup(ctx, x, z) {
-  const group = new THREE.Group();
-  group.position.set(x, 0.18, z);
+  const group = createAlmondWaterModel(ctx, materials);
+  group.position.set(x, 0.02, z);
   group.rotation.y = ctx.rng() * Math.PI * 2;
-
-  const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.085, 0.32, 14), materials.almondWater);
-  bottle.castShadow = true;
-  bottle.position.y = 0.16;
-  group.add(bottle);
-
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.16, 12), materials.waterJug);
-  neck.position.y = 0.4;
-  group.add(neck);
-
-  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.035, 12), materials.torchHead);
-  cap.position.y = 0.5;
-  group.add(cap);
 
   const pickup = {
     id: "almond_water",
@@ -2187,7 +1840,7 @@ function addSupplyStation(ctx, x, z, tile, height) {
   } else {
     addVendingMachine(ctx, x, z, tile, height);
   }
-  if (ctx.rng() < 0.72) {
+  if (ctx.rng() < 0.25) {
     addAlmondWaterPickup(ctx, x + (ctx.rng() - 0.5) * tile * 0.55, z + (ctx.rng() - 0.5) * tile * 0.55);
   }
 }
@@ -2278,7 +1931,7 @@ function addOfficeFurniture(ctx, x, z, tile) {
   group.add(back);
 
   ctx.group.add(group);
-  ctx.colliders.push({ minX: x - tile * 0.34, maxX: x + tile * 0.34, minZ: z - tile * 0.25, maxZ: z + tile * 0.25, minY: 0, maxY: LOW_OBSTACLE_CLEARANCE, low: true });
+  ctx.colliders.push({ minX: x - tile * 0.34, maxX: x + tile * 0.34, minZ: z - tile * 0.25, maxZ: z + tile * 0.25, minY: 0, maxY: LOW_OBSTACLE_CLEARANCE, lowObstacle: true });
 }
 
 function addTrapWindow(ctx, x, z, tile, height, c, r, charAt) {
@@ -2288,16 +1941,21 @@ function addTrapWindow(ctx, x, z, tile, height, c, r, charAt) {
   }
   const alongX = wall === "north" || wall === "south";
   const side = wall === "north" || wall === "west" ? -1 : 1;
+  const offset = tile * 0.5 - 0.115;
+  const panelW = tile * 0.72;
+  const panelH = 0.9;
+  const panelD = 0.025;
+  const wx = x + (!alongX ? side * offset : 0);
+  const wz = z + (alongX ? side * offset : 0);
+  const wy = height * 0.56;
   const window = new THREE.Mesh(
-    new THREE.BoxGeometry(alongX ? tile * 0.72 : 0.035, 0.82, alongX ? 0.035 : tile * 0.72),
+    new THREE.BoxGeometry(alongX ? panelW : panelD, panelH, alongX ? panelD : panelW),
     materials.trapWindow.clone()
   );
-  window.position.set(
-    x + (!alongX ? side * (tile * 0.5 - 0.035) : 0),
-    height * 0.54,
-    z + (alongX ? side * (tile * 0.5 - 0.035) : 0)
-  );
+  window.position.set(wx, wy, wz);
   ctx.group.add(window);
+
+  addWindowTrim(ctx, wx, wy, wz, alongX, panelW, panelH, panelD, materials.officeTrim);
   ctx.windowTraps.push({ x: window.position.x, z: window.position.z, radius: tile * 0.92, damage: 34, mesh: window, phase: ctx.rng() * Math.PI * 2 });
 }
 
@@ -2330,634 +1988,289 @@ function addBlackedWindow(ctx, x, z, tile, height, c, r, charAt) {
   }
   const alongX = wall === "north" || wall === "south";
   const side = wall === "north" || wall === "west" ? -1 : 1;
+  const offset = tile * 0.5 - 0.115;
+  const panelW = tile * 0.62;
+  const panelH = 0.64;
+  const panelD = 0.025;
+  const wx = x + (!alongX ? side * offset : 0);
+  const wz = z + (alongX ? side * offset : 0);
+  const wy = height * 0.58;
   const window = new THREE.Mesh(
-    new THREE.BoxGeometry(alongX ? tile * 0.62 : 0.03, 0.58, alongX ? 0.03 : tile * 0.62),
+    new THREE.BoxGeometry(alongX ? panelW : panelD, panelH, alongX ? panelD : panelW),
     materials.blackedWindow
   );
-  window.position.set(
-    x + (!alongX ? side * (tile * 0.5 - 0.03) : 0),
-    height * 0.58,
-    z + (alongX ? side * (tile * 0.5 - 0.03) : 0)
-  );
+  window.position.set(wx, wy, wz);
   ctx.group.add(window);
+
+  addWindowTrim(ctx, wx, wy, wz, alongX, panelW, panelH, panelD, materials.officeTrim);
 }
 
-function prepareSmilerSpawns(ctx, rows, width, depth, cellCenter, charAt, tile) {
-  const minLightDistance = ctx.def.tile * 4.1;
-  const minStartDistance = ctx.def.tile * 7;
-  ctx.smilerSpawnPoints = [];
+function addWindowTrim(ctx, x, y, z, alongX, panelW, panelH, panelD, material) {
+  const trimDepth = panelD + 0.018;
+  const trim = 0.045;
+  const parts = alongX
+    ? [
+        [panelW + trim * 2, trim, trimDepth, 0, panelH * 0.5 + trim * 0.5, 0],
+        [panelW + trim * 2, trim, trimDepth, 0, -panelH * 0.5 - trim * 0.5, 0],
+        [trim, panelH + trim * 2, trimDepth, -panelW * 0.5 - trim * 0.5, 0, 0],
+        [trim, panelH + trim * 2, trimDepth, panelW * 0.5 + trim * 0.5, 0, 0],
+      ]
+    : [
+        [trimDepth, trim, panelW + trim * 2, 0, panelH * 0.5 + trim * 0.5, 0],
+        [trimDepth, trim, panelW + trim * 2, 0, -panelH * 0.5 - trim * 0.5, 0],
+        [trimDepth, panelH + trim * 2, trim, 0, 0, -panelW * 0.5 - trim * 0.5],
+        [trimDepth, panelH + trim * 2, trim, 0, 0, panelW * 0.5 + trim * 0.5],
+      ];
+  for (const [w, h, d, dx, dy, dz] of parts) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    mesh.position.set(x + dx, y + dy, z + dz);
+    mesh.receiveShadow = true;
+    ctx.group.add(mesh);
+  }
+}
 
-  for (let r = 1; r < depth - 1; r += 1) {
-    for (let c = 1; c < width - 1; c += 1) {
-      const ch = charAt(c, r);
-      if (ch === "#" || ch === "S" || ch === "E") {
+function addLevel5HotelDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height) {
+  for (let r = 3; r < depth - 3; r += 8) {
+    for (let c = 6; c < width - 6; c += 14) {
+      if (charAt(c, r) === "#") {
         continue;
       }
       const center = cellCenter(c, r);
-      if (distance2D(center, ctx.start) < minStartDistance || ctx.exitZones.some((zone) => distance2D(center, zone) < ctx.def.tile * 4)) {
+      addChandelier(ctx, center.x, center.z, height);
+    }
+  }
+}
+
+function addLevel6DarknessDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height) {
+  for (let r = 1; r < depth - 1; r += 1) {
+    for (let c = 1; c < width - 1; c += 1) {
+      const ch = charAt(c, r);
+      if (ch === "#") {
         continue;
       }
-      for (const side of getWallFaceAnchors(center, c, r, charAt, tile)) {
-        if (ctx.flickerLights.every((light) => distance2D(side, light) > minLightDistance)) {
-          ctx.smilerSpawnPoints.push(side);
-        }
+      const center = cellCenter(c, r);
+      if (ch === "E") {
+        addLevel6ExitBeacon(ctx, center.x, center.z, tile);
       }
-    }
-  }
-
-  if (ctx.smilerSpawnPoints.length < 10) {
-    ctx.smilerSpawnPoints = [];
-    for (let r = 1; r < depth - 1; r += 1) {
-      for (let c = 1; c < width - 1; c += 1) {
-        const ch = charAt(c, r);
-        if (ch === "#" || ch === "S" || ch === "E") {
-          continue;
-        }
-        const center = cellCenter(c, r);
-        if (distance2D(center, ctx.start) < minStartDistance) {
-          continue;
-        }
-        for (const side of getWallFaceAnchors(center, c, r, charAt, tile)) {
-          if (ctx.flickerLights.every((light) => distance2D(side, light) > ctx.def.tile * 2.7)) {
-            ctx.smilerSpawnPoints.push(side);
-          }
-        }
+      if ((r + c) % 3 !== 0 || ctx.rng() > 0.54) {
+        continue;
       }
+      addLevel6EchoMarker(ctx, center.x, center.z, tile, height, c, r, charAt);
     }
   }
-
-  ctx.smilerSpawnTimer = 5 + ctx.rng() * 8;
 }
 
-function getWallFaceAnchors(center, c, r, charAt, tile) {
-  const sides = [
-    { dc: 0, dr: -1 },
-    { dc: 0, dr: 1 },
-    { dc: -1, dr: 0 },
-    { dc: 1, dr: 0 },
-  ];
-  const anchors = [];
-  for (const side of sides) {
-    if (charAt(c + side.dc, r + side.dr) !== "#") {
-      continue;
-    }
-    const x = center.x + side.dc * (tile * 0.5 - 0.14);
-    const z = center.z + side.dr * (tile * 0.5 - 0.14);
-    const inwardX = -side.dc;
-    const inwardZ = -side.dr;
-    anchors.push({ x, z, rotationY: Math.atan2(inwardX, inwardZ) });
+function addLevel6EchoMarker(ctx, x, z, tile, height, c, r, charAt) {
+  const wall = getWindowWall(c, r, charAt);
+  const material = materials.echoLine.clone();
+  let mesh;
+  if (wall) {
+    const alongX = wall === "north" || wall === "south";
+    const side = wall === "north" || wall === "west" ? -1 : 1;
+    mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(alongX ? tile * 0.42 : 0.012, 0.028, alongX ? 0.012 : tile * 0.42),
+      material
+    );
+    mesh.position.set(
+      x + (!alongX ? side * (tile * 0.5 - 0.014) : 0),
+      0.48 + ctx.rng() * Math.max(0.4, height - 1.1),
+      z + (alongX ? side * (tile * 0.5 - 0.014) : 0)
+    );
+  } else {
+    mesh = new THREE.Mesh(new THREE.BoxGeometry(tile * 0.42, 0.01, 0.018), material);
+    mesh.position.set(x, 0.018, z);
+    mesh.rotation.y = Math.floor(ctx.rng() * 4) * Math.PI * 0.5;
   }
-  return anchors;
+  mesh.visible = false;
+  ctx.group.add(mesh);
+  ctx.darkEchoes.push({ x, z, mesh, radius: tile * 6.8, strength: 0.28 + ctx.rng() * 0.16, kind: "echo" });
 }
 
-function pointHitsCollider(ctx, x, z, radius) {
-  for (const box of ctx.colliders) {
-    const cx = THREE.MathUtils.clamp(x, box.minX, box.maxX);
-    const cz = THREE.MathUtils.clamp(z, box.minZ, box.maxZ);
-    const distanceSq = (x - cx) * (x - cx) + (z - cz) * (z - cz);
-    if (distanceSq < radius * radius) {
-      return true;
-    }
-  }
-  return false;
+function addLevel6ExitBeacon(ctx, x, z, tile) {
+  const ringMaterial = materials.waveHint.clone();
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(tile * 0.26, 0.012, 8, 28), ringMaterial);
+  ring.position.set(x, 0.035, z);
+  ring.rotation.x = Math.PI * 0.5;
+  ring.visible = false;
+  ctx.group.add(ring);
+  ctx.darkEchoes.push({ x, z, mesh: ring, radius: tile * 11, strength: 0.5, kind: "exit" });
+
+  const lineMaterial = materials.waveHint.clone();
+  const line = new THREE.Mesh(new THREE.BoxGeometry(tile * 0.58, 0.015, 0.018), lineMaterial);
+  line.position.set(x, 0.05, z);
+  line.visible = false;
+  ctx.group.add(line);
+  ctx.darkEchoes.push({ x, z, mesh: line, radius: tile * 9, strength: 0.36, kind: "exit" });
 }
 
-function addDeathmoths(ctx) {
-  const candidates = ctx.walkables.filter((point) => {
-    if (distance2D(point, ctx.start) < ctx.def.tile * 8) {
-      return false;
-    }
-    if (ctx.exitZones.some((zone) => distance2D(point, zone) < ctx.def.tile * 4)) {
-      return false;
-    }
-    return !pointHitsCollider(ctx, point.x, point.z, 0.7);
-  });
-  const pool = candidates.length > 0 ? candidates : ctx.walkables;
-  const count = Math.min(DEATHMOTH_COUNT, pool.length);
-
-  for (let i = 0; i < count; i += 1) {
-    const point = pool[Math.floor(ctx.rng() * pool.length)];
-    const y = 1.15 + ctx.rng() * Math.max(0.55, ctx.def.ceiling - 1.75);
-    const moth = createDeathmoth(ctx, point.x, y, point.z);
-    moth.target = pickInitialDeathmothTarget(ctx, moth.position);
-    ctx.group.add(moth.group);
-    ctx.deathmoths.push(moth);
-  }
-}
-
-function pickInitialDeathmothTarget(ctx, position) {
-  if (!ctx.walkables.length) {
-    return { x: position.x, y: position.y, z: position.z };
-  }
-  const point = ctx.walkables[Math.floor(ctx.rng() * ctx.walkables.length)];
-  return {
-    x: point.x,
-    y: 1.15 + ctx.rng() * Math.max(0.55, ctx.def.ceiling - 1.75),
-    z: point.z,
-  };
-}
-
-function createDeathmoth(ctx, x, y, z) {
-  if (deathmothAsset.scene) {
-    return createModelDeathmoth(ctx, x, y, z);
-  }
-  return createProceduralDeathmoth(ctx, x, y, z);
-}
-
-function createModelDeathmoth(ctx, x, y, z) {
+function addLevel6WireTrap(ctx, x, z, tile) {
+  const material = materials.darkWire.clone();
   const group = new THREE.Group();
-  group.position.set(x, y, z);
-  group.rotation.y = ctx.rng() * Math.PI * 2;
+  group.position.set(x, 0.048, z);
+  group.rotation.y = Math.floor(ctx.rng() * 4) * Math.PI * 0.5 + (ctx.rng() - 0.5) * 0.3;
 
-  const model = cloneSkeleton(deathmothAsset.scene);
-  const mixer = deathmothAsset.animations.length > 0 ? new THREE.AnimationMixer(model) : null;
-  const actions = [];
-
-  model.traverse((object) => {
-    if (object.isMesh) {
-      object.castShadow = true;
-      object.receiveShadow = true;
-      if (object.material) {
-        object.material = Array.isArray(object.material)
-          ? object.material.map((material) => normalizeDeathmothModelMaterial(material))
-          : normalizeDeathmothModelMaterial(object.material);
-      }
-    }
-  });
-
-  const box = new THREE.Box3().setFromObject(model);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const targetSize = 0.025 + ctx.rng() * 0.008;
-  const scale = targetSize / Math.max(size.x, size.y, size.z, 0.001);
-  model.scale.setScalar(scale);
-  model.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
-
-  group.add(model);
-
-  if (mixer) {
-    for (const clip of deathmothAsset.animations) {
-      const action = mixer.clipAction(clip);
-      action.reset().play();
-      actions.push(action);
-    }
+  for (let i = 0; i < 3; i += 1) {
+    const wire = new THREE.Mesh(new THREE.BoxGeometry(tile * (0.58 + ctx.rng() * 0.18), 0.012, 0.018), material);
+    wire.position.set(0, i * 0.018, (i - 1) * 0.09);
+    wire.rotation.y = (ctx.rng() - 0.5) * 0.18;
+    group.add(wire);
   }
 
-  return {
-    group,
-    modelRoot: model,
-    mixer,
-    actions,
-    position: new THREE.Vector3(x, y, z),
-    target: null,
-    roamSpeed: 1.55,
-    attractedSpeed: 5.4,
-    damageCooldown: 0,
-    animation: ctx.rng() * Math.PI * 2,
+  ctx.group.add(group);
+  ctx.wireTraps.push({
+    x,
+    z,
+    radius: tile * 0.48,
+    damage: 19,
+    mesh: group.children[0],
     phase: ctx.rng() * Math.PI * 2,
-    modelBased: true,
-  };
+    cooldown: 0,
+  });
 }
 
-function normalizeDeathmothModelMaterial(sourceMaterial) {
-  const material = sourceMaterial.clone();
-  material.side = THREE.DoubleSide;
-  material.roughness = 0.78;
-  material.metalness = 0;
-  material.envMapIntensity = 0.15;
-  material.toneMapped = true;
-  material.needsUpdate = true;
-  return material;
-}
-
-function createProceduralDeathmoth(ctx, x, y, z) {
-  const group = new THREE.Group();
-  group.position.set(x, y, z);
-  group.rotation.y = ctx.rng() * Math.PI * 2;
-  const scale = 0.68 + ctx.rng() * 0.18;
-  group.scale.setScalar(scale);
-
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.62, 5, 8), materials.deathmothBody);
-  body.rotation.x = Math.PI * 0.5;
-  body.castShadow = true;
-  group.add(body);
-
-  const thorax = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.16, 5, 8), materials.deathmothFur);
-  thorax.rotation.x = Math.PI * 0.5;
-  thorax.scale.set(0.82, 0.72, 1);
-  thorax.position.z = -0.06;
-  group.add(thorax);
-
-  const head = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.055, 5, 7), materials.deathmothFur);
-  head.rotation.x = Math.PI * 0.5;
-  head.scale.set(0.78, 0.68, 1);
-  head.position.z = 0.38;
-  group.add(head);
-
-  for (const sx of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.014, 7, 5), materials.deathmothEye);
-    eye.position.set(sx * 0.036, 0.014, 0.44);
-    group.add(eye);
-
-    const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.002, 0.34, 5), materials.deathmothFur);
-    antenna.position.set(sx * 0.04, 0.045, 0.56);
-    antenna.rotation.x = 0.75;
-    antenna.rotation.z = sx * 0.34;
-    group.add(antenna);
-  }
-
-  const leftWing = createDeathmothWing(-1, 0.055, 0.018, 0.03, 0.96, 0.54, -0.22);
-  const rightWing = createDeathmothWing(1, -0.055, 0.018, 0.03, 0.96, 0.54, 0.22);
-  const leftLowerWing = createDeathmothWing(-1, 0.026, -0.018, -0.22, 0.7, 0.4, -0.72);
-  const rightLowerWing = createDeathmothWing(1, -0.026, -0.018, -0.22, 0.7, 0.4, 0.72);
-  group.add(leftWing, rightWing, leftLowerWing, rightLowerWing);
-
-  for (let i = 0; i < 8; i += 1) {
-    const hair = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.002, 0.16 + ctx.rng() * 0.1, 4), materials.deathmothFur);
-    hair.position.set((ctx.rng() - 0.5) * 0.11, -0.01 - ctx.rng() * 0.05, -0.18 + ctx.rng() * 0.32);
-    hair.rotation.x = Math.PI * 0.5 + (ctx.rng() - 0.5) * 0.7;
-    hair.rotation.z = (ctx.rng() - 0.5) * 1.2;
-    group.add(hair);
-  }
-
-  return {
-    group,
-    body,
-    leftWing,
-    rightWing,
-    leftLowerWing,
-    rightLowerWing,
-    position: new THREE.Vector3(x, y, z),
-    target: null,
-    roamSpeed: 1.55,
-    attractedSpeed: 5.4,
-    damageCooldown: 0,
-    animation: ctx.rng() * Math.PI * 2,
-    phase: ctx.rng() * Math.PI * 2,
-    modelBased: false,
-  };
-}
-
-function createDeathmothWing(side, pivotX, pivotY, pivotZ, width, height, rotationZ) {
-  const root = new THREE.Group();
-  root.position.set(pivotX, pivotY, pivotZ);
-  root.rotation.z = rotationZ;
-
-  const wing = new THREE.Mesh(new THREE.PlaneGeometry(width, height), materials.deathmothWing);
-  wing.position.x = side * width * 0.5;
-  wing.rotation.x = -0.12;
-  wing.rotation.z = side < 0 ? Math.PI : 0;
-  root.add(wing);
-  return root;
-}
-
-function createSmiler(x, z, rotationY, lifetime, rng) {
-  const group = new THREE.Group();
-  const eyeHeight = 1.58;
-  group.position.set(x, eyeHeight, z);
-  group.rotation.y = rotationY;
-
-  const face = new THREE.Group();
-  group.add(face);
-
-  const shadow = new THREE.Mesh(new THREE.CircleGeometry(1.2, 36), materials.smilerShadow.clone());
-  shadow.scale.set(1.1, 0.92, 1);
-  face.add(shadow);
-
-  for (let i = 0; i < 18; i += 1) {
-    const haze = new THREE.Mesh(new THREE.CircleGeometry(0.12 + rng() * 0.28, 14), materials.smilerShadow.clone());
-    haze.material.opacity = 0.18 + rng() * 0.18;
-    haze.position.set((rng() - 0.5) * 2.05, (rng() - 0.5) * 1.35, -0.015 - i * 0.0005);
-    haze.scale.set(1.2 + rng() * 1.7, 0.8 + rng() * 1.2, 1);
-    face.add(haze);
-  }
-
-  addSmilerEye(face, -0.39, 0.28);
-  addSmilerEye(face, 0.39, 0.28);
-  addSmilerMouth(face);
-
-  return {
-    group,
-    face,
-    shadow,
-    position: new THREE.Vector3(x, eyeHeight, z),
-    eyeHeight,
-    wallRotationY: rotationY,
-    age: 0,
-    lifetime,
-    animation: rng() * Math.PI * 2,
-    mode: "watch",
-  };
-}
-
-function addSmilerEye(face, x, y) {
-  const eye = new THREE.Mesh(new THREE.CircleGeometry(0.14, 18), materials.smilerGlow);
-  eye.position.set(x, y, 0.03);
-  eye.scale.set(0.8, 1.25, 1);
-  face.add(eye);
-
-  const red = new THREE.Mesh(new THREE.CircleGeometry(0.16, 18), materials.smilerRedGlow);
-  red.position.set(x - 0.045, y + 0.015, 0.025);
-  red.scale.copy(eye.scale);
-  face.add(red);
-
-  const blue = new THREE.Mesh(new THREE.CircleGeometry(0.16, 18), materials.smilerBlueGlow);
-  blue.position.set(x + 0.04, y - 0.01, 0.02);
-  blue.scale.copy(eye.scale);
-  face.add(blue);
-}
-
-function addSmilerMouth(face) {
-  const points = [];
-  for (let i = 0; i <= 24; i += 1) {
-    const t = i / 24;
-    points.push(new THREE.Vector3((t - 0.5) * 1.35, -0.13 - Math.sin(t * Math.PI) * 0.36, 0.035));
-  }
-  const curve = new THREE.CatmullRomCurve3(points);
-  const mouth = new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.035, 8, false), materials.smilerGlow);
-  face.add(mouth);
-
-  const red = new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.038, 8, false), materials.smilerRedGlow);
-  red.position.set(-0.035, 0.025, -0.003);
-  face.add(red);
-
-  const blue = new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.038, 8, false), materials.smilerBlueGlow);
-  blue.position.set(0.035, -0.02, -0.006);
-  face.add(blue);
-
-  const green = new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.03, 8, false), materials.smilerGreenGlow);
-  green.position.set(0.015, 0, -0.009);
-  face.add(green);
-
-  for (let i = 0; i < 15; i += 1) {
-    const t = (i + 0.5) / 15;
-    const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.18 + Math.sin(t * Math.PI) * 0.08, 4), materials.smilerGlow);
-    tooth.position.set((t - 0.5) * 1.22, -0.15 - Math.sin(t * Math.PI) * 0.32, 0.06);
-    tooth.rotation.z = (t - 0.5) * 0.72;
-    tooth.rotation.x = Math.PI;
-    face.add(tooth);
+function addHotelFurniture(ctx, x, z, tile) {
+  if (ctx.rng() < 0.48) {
+    addHotelSofa(ctx, x, z, tile);
+  } else {
+    addHotelCabinet(ctx, x, z, tile);
   }
 }
 
-function addHound(ctx, x, z) {
-  if (houndAsset.scene) {
-    addModelHound(ctx, x, z);
-    return;
-  }
-
+function addHotelSofa(ctx, x, z, tile) {
   const group = new THREE.Group();
   group.position.set(x, 0, z);
-  group.rotation.y = ctx.rng() * Math.PI * 2;
+  group.rotation.y = Math.floor(ctx.rng() * 4) * Math.PI * 0.5;
 
-  const body = new THREE.Mesh(new THREE.SphereGeometry(0.62, 14, 10), materials.houndSkin);
-  body.scale.set(0.82, 0.44, 1.55);
-  body.position.set(0, 0.86, 0);
+  const base = new THREE.Mesh(new THREE.BoxGeometry(tile * 0.72, 0.22, tile * 0.32), materials.hotelFabric);
+  base.position.y = 0.34;
+  base.castShadow = true;
+  group.add(base);
+
+  const back = new THREE.Mesh(new THREE.BoxGeometry(tile * 0.76, 0.54, 0.16), materials.hotelFabric);
+  back.position.set(0, 0.62, tile * 0.2);
+  back.castShadow = true;
+  group.add(back);
+
+  for (const sx of [-1, 1]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.36, tile * 0.36), materials.hotelWood);
+    arm.position.set(sx * tile * 0.42, 0.46, 0);
+    arm.castShadow = true;
+    group.add(arm);
+  }
+
+  ctx.group.add(group);
+  ctx.colliders.push({ minX: x - tile * 0.44, maxX: x + tile * 0.44, minZ: z - tile * 0.28, maxZ: z + tile * 0.28, minY: 0, maxY: LOW_OBSTACLE_CLEARANCE, lowObstacle: true });
+}
+
+function addHotelCabinet(ctx, x, z, tile) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = Math.floor(ctx.rng() * 4) * Math.PI * 0.5;
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(tile * 0.46, 1.25, tile * 0.28), materials.hotelWood);
+  body.position.y = 0.64;
   body.castShadow = true;
   body.receiveShadow = true;
   group.add(body);
 
-  const spine = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.13, 1.45), materials.houndRib);
-  spine.position.set(0, 1.08, -0.05);
-  group.add(spine);
-
-  for (let i = 0; i < 7; i += 1) {
-    const ribZ = -0.62 + i * 0.18;
-    for (const sx of [-1, 1]) {
-      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.09, 0.22), materials.houndRib);
-      rib.position.set(sx * (0.25 + i * 0.012), 0.98 - i * 0.018, ribZ);
-      rib.rotation.z = sx * 0.5;
-      rib.rotation.y = sx * 0.12;
-      group.add(rib);
-    }
-  }
-
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 14, 10), materials.houndSkin);
-  head.scale.set(0.82, 0.72, 1.1);
-  head.position.set(0, 0.92, 1.05);
-  head.castShadow = true;
-  group.add(head);
-
-  const brow = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.08, 0.08), materials.houndRib);
-  brow.position.set(0, 1.03, 1.31);
-  brow.rotation.x = -0.16;
-  group.add(brow);
-
-  const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.15, 0.34), materials.houndMouth);
-  jaw.position.set(0, 0.75, 1.31);
-  group.add(jaw);
-
-  const lowerJaw = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.07, 0.3), materials.houndSkin);
-  lowerJaw.position.set(0, 0.64, 1.34);
-  lowerJaw.rotation.x = 0.14;
-  group.add(lowerJaw);
-
-  for (const sx of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), materials.houndEye);
-    eye.position.set(sx * 0.13, 0.96, 1.35);
-    group.add(eye);
-  }
-
-  for (let i = 0; i < 9; i += 1) {
-    const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.13, 4), materials.teeth);
-    tooth.rotation.x = Math.PI;
-    tooth.position.set((i - 4) * 0.045, 0.69, 1.49);
-    group.add(tooth);
-  }
-
-  const legs = [];
-  const legBaseRotations = [];
-  const legPositions = [
-    [-0.42, 0.43, 0.64, -0.35],
-    [0.42, 0.43, 0.64, -0.35],
-    [-0.42, 0.43, -0.66, 0.35],
-    [0.42, 0.43, -0.66, 0.35],
-  ];
-  for (const [lx, ly, lz, baseRot] of legPositions) {
-    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.052, 0.92, 8), materials.houndSkin);
-    upper.position.set(lx, ly, lz);
-    upper.rotation.x = baseRot;
-    upper.castShadow = true;
-    group.add(upper);
-    legs.push(upper);
-    legBaseRotations.push(baseRot);
-
-    const clawBaseZ = lz + (baseRot < 0 ? 0.34 : -0.34);
-    const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), materials.houndSkin);
-    shoulder.position.set(lx, 0.82, lz);
-    shoulder.scale.set(1.1, 0.8, 0.9);
-    group.add(shoulder);
-
-    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.038, 0.58, 8), materials.houndSkin);
-    forearm.position.set(lx, 0.25, lz + (baseRot < 0 ? 0.22 : -0.22));
-    forearm.rotation.x = baseRot < 0 ? -0.18 : 0.18;
-    forearm.castShadow = true;
-    group.add(forearm);
-
-    const wrist = new THREE.Mesh(new THREE.SphereGeometry(0.065, 8, 6), materials.houndRib);
-    wrist.position.set(lx, 0.13, clawBaseZ);
-    group.add(wrist);
-
-    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.32), materials.houndSkin);
-    foot.position.set(lx, 0.08, clawBaseZ);
-    group.add(foot);
-    for (let i = 0; i < 3; i += 1) {
-      const claw = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.16, 5), materials.houndClaw);
-      claw.rotation.x = Math.PI * 0.5;
-      claw.position.set(lx + (i - 1) * 0.06, 0.08, clawBaseZ + (baseRot < 0 ? 0.2 : -0.2));
-      group.add(claw);
-    }
-  }
-
-  for (let i = 0; i < 34; i += 1) {
-    const strand = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.58 + ctx.rng() * 0.58, 0.016), materials.houndHair);
-    strand.position.set((ctx.rng() - 0.5) * 0.62, 0.82 - ctx.rng() * 0.22, 0.88 + ctx.rng() * 0.5);
-    strand.rotation.x = 0.4 + ctx.rng() * 0.42;
-    strand.rotation.z = (ctx.rng() - 0.5) * 0.22;
-    group.add(strand);
-  }
-
-  for (let i = 0; i < 12; i += 1) {
-    const patch = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.018, 0.22 + ctx.rng() * 0.18), materials.houndBruise);
-    patch.position.set((ctx.rng() - 0.5) * 0.75, 1.04 + (ctx.rng() - 0.5) * 0.1, -0.75 + ctx.rng() * 1.1);
-    patch.rotation.y = ctx.rng() * Math.PI;
-    patch.rotation.z = (ctx.rng() - 0.5) * 0.6;
-    group.add(patch);
+  for (let i = 0; i < 3; i += 1) {
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), materials.hotelGold);
+    knob.position.set(tile * 0.11, 0.34 + i * 0.28, -tile * 0.15);
+    group.add(knob);
   }
 
   ctx.group.add(group);
-  const hound = {
-    group,
-    body,
-    head,
-    legs,
-    legBaseRotations,
-    position: new THREE.Vector3(x, 0, z),
-    target: null,
-    mode: "roam",
-    roamSpeed: 1.25,
-    huntSpeed: 6.25,
-    attackCooldown: 0,
-    freezeTimer: 0,
-    animation: ctx.rng() * Math.PI * 2,
-  };
-  hound.target = pickInitialHoundTarget(ctx, hound.position);
-  ctx.hounds.push(hound);
+  ctx.colliders.push({ minX: x - tile * 0.28, maxX: x + tile * 0.28, minZ: z - tile * 0.22, maxZ: z + tile * 0.22, minY: 0, maxY: LOW_OBSTACLE_CLEARANCE, lowObstacle: true });
 }
 
-function addModelHound(ctx, x, z) {
+function addHotelDoor(ctx, x, z, tile, height, c, r, charAt) {
+  const wall = getWindowWall(c, r, charAt);
+  if (!wall) {
+    return;
+  }
+  const alongX = wall === "north" || wall === "south";
+  const side = wall === "north" || wall === "west" ? -1 : 1;
+  const offset = tile * 0.5 - 0.115;
+  const dx = !alongX ? side * offset : 0;
+  const dz = alongX ? side * offset : 0;
+  const door = new THREE.Mesh(
+    new THREE.BoxGeometry(alongX ? tile * 0.48 : 0.04, height * 0.72, alongX ? 0.04 : tile * 0.48),
+    materials.hotelWood
+  );
+  door.position.set(x + dx, height * 0.36, z + dz);
+  door.receiveShadow = true;
+  ctx.group.add(door);
+
+  const placard = new THREE.Mesh(
+    new THREE.BoxGeometry(alongX ? 0.24 : 0.035, 0.12, alongX ? 0.035 : 0.24),
+    materials.hotelGold
+  );
+  placard.position.set(x + dx, 1.72, z + dz);
+  ctx.group.add(placard);
+}
+
+function addHotelPainting(ctx, x, z, tile, height, c, r, charAt) {
+  const wall = getWindowWall(c, r, charAt);
+  if (!wall) {
+    return;
+  }
+  const alongX = wall === "north" || wall === "south";
+  const side = wall === "north" || wall === "west" ? -1 : 1;
+  const offset = tile * 0.5 - 0.112;
+  const px = x + (!alongX ? side * offset : 0);
+  const pz = z + (alongX ? side * offset : 0);
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(alongX ? tile * 0.34 : 0.035, 0.54, alongX ? 0.035 : tile * 0.34),
+    materials.hotelGold
+  );
+  frame.position.set(px, height * 0.57, pz);
+  ctx.group.add(frame);
+
+  const inset = new THREE.Mesh(
+    new THREE.BoxGeometry(alongX ? tile * 0.25 : 0.04, 0.4, alongX ? 0.04 : tile * 0.25),
+    materials.hotelPainting
+  );
+  inset.position.set(px, height * 0.57, pz);
+  ctx.group.add(inset);
+}
+
+function addGramophone(ctx, x, z, tile) {
   const group = new THREE.Group();
-  const model = cloneSkeleton(houndAsset.scene);
-  const mixer = houndAsset.animations.length > 0 ? new THREE.AnimationMixer(model) : null;
-  const actions = new Map();
-
-  model.traverse((object) => {
-    if (object.isMesh) {
-      object.castShadow = true;
-      object.receiveShadow = true;
-      if (object.material) {
-        object.material = normalizeHoundModelMaterial(object.material);
-      }
-    }
-  });
-
-  const box = new THREE.Box3().setFromObject(model);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const scale = 0.62 / Math.max(size.x, size.y, size.z, 0.001);
-  model.scale.setScalar(scale);
-  model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
-  model.rotation.y = 0;
-
-  group.add(model);
   group.position.set(x, 0, z);
   group.rotation.y = ctx.rng() * Math.PI * 2;
+
+  const table = new THREE.Mesh(new THREE.BoxGeometry(tile * 0.36, 0.12, tile * 0.28), materials.hotelWood);
+  table.position.y = 0.5;
+  table.castShadow = true;
+  group.add(table);
+
+  const horn = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.42, 18, 1, true), materials.hotelGold);
+  horn.position.set(0, 0.86, 0.02);
+  horn.rotation.x = Math.PI * 0.5;
+  horn.castShadow = true;
+  group.add(horn);
+
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.08, 16), materials.hotelSpeaker);
+  base.position.y = 0.62;
+  group.add(base);
+
   ctx.group.add(group);
-
-  for (const clip of houndAsset.animations) {
-    const action = mixer.clipAction(clip);
-    actions.set(clip.name.toLowerCase(), action);
-  }
-
-  const hound = {
-    group,
-    modelRoot: model,
-    mixer,
-    actions,
-    activeAction: null,
-    body: null,
-    head: null,
-    legs: [],
-    legBaseRotations: [],
-    position: new THREE.Vector3(x, 0, z),
-    target: null,
-    mode: "roam",
-    roamSpeed: 1.25,
-    huntSpeed: 6.25,
-    attackCooldown: 0,
-    freezeTimer: 0,
-    animation: ctx.rng() * Math.PI * 2,
-    modelBased: true,
-  };
-  setHoundAnimation(hound, "roam");
-  hound.target = pickInitialHoundTarget(ctx, hound.position);
-  ctx.hounds.push(hound);
+  ctx.colliders.push({ minX: x - tile * 0.22, maxX: x + tile * 0.22, minZ: z - tile * 0.2, maxZ: z + tile * 0.2, minY: 0, maxY: LOW_OBSTACLE_CLEARANCE, lowObstacle: true });
 }
 
-function normalizeHoundModelMaterial(sourceMaterial) {
-  const material = sourceMaterial.clone();
-  material.side = THREE.FrontSide;
-  material.color?.set(0x777777);
-  material.emissive?.set(0x000000);
-  material.emissiveIntensity = 0;
-  material.metalness = 0;
-  material.roughness = 0.86;
-  material.envMapIntensity = 0;
-  material.toneMapped = true;
-  if (material.specularColor) {
-    material.specularColor.set(0x222222);
-  }
-  if ("specularIntensity" in material) {
-    material.specularIntensity = 0.12;
-  }
-  material.needsUpdate = true;
-  return material;
-}
+function addChandelier(ctx, x, z, height) {
+  const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.42, 8), materials.hotelGold);
+  chain.position.set(x, height - 0.34, z);
+  ctx.group.add(chain);
 
-function setHoundAnimation(hound, mode) {
-  if (!hound.mixer || !hound.actions?.size) {
-    return;
-  }
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.018, 8, 24), materials.hotelGold);
+  ring.position.set(x, height - 0.62, z);
+  ring.rotation.x = Math.PI * 0.5;
+  ctx.group.add(ring);
 
-  const candidates = {
-    frozen: ["idle", "stun", "freeze", "default"],
-    hunt: ["run", "crawl", "walk", "take", "baselayer", "attack", "idle"],
-    roam: ["walk", "crawl", "take", "baselayer", "idle", "default"],
-  }[mode] || ["idle"];
-
-  let next = null;
-  for (const candidate of candidates) {
-    next = [...hound.actions.entries()].find(([name]) => name.includes(candidate))?.[1] || null;
-    if (next) {
-      break;
-    }
-  }
-  next ||= [...hound.actions.values()][0];
-  if (!next || next === hound.activeAction) {
-    return;
-  }
-
-  next.reset().fadeIn(0.18).play();
-  if (hound.activeAction) {
-    hound.activeAction.fadeOut(0.18);
-  }
-  hound.activeAction = next;
-}
-
-function pickInitialHoundTarget(ctx, position) {
-  if (!ctx.walkables.length) {
-    return { x: position.x, z: position.z };
-  }
-  return ctx.walkables[Math.floor(ctx.rng() * ctx.walkables.length)];
+  const light = new THREE.PointLight(0xffb05d, 0.36, 5.5, 1.7);
+  light.position.set(x, height - 0.72, z);
+  ctx.group.add(light);
 }
 
 function addPillar(ctx, x, z, height) {
