@@ -93,3 +93,30 @@ function carveLevel3Branch(grid, carved, start, rng) {
     carveTunnelCell(grid, carved, current.c, current.r);
   }
 }
+
+export const level3Hooks = {
+  afterBuild({ ctx, rows, width, depth, cellCenter, charAt, tile, height, materials }) {
+    addLevel3CeilingDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height, materials);
+  },
+};
+
+function addLevel3CeilingDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height, materials) {
+  for (let r = 3; r < depth - 3; r += 6) {
+    for (let c = 3; c < width - 3; c += 8) {
+      if (charAt(c, r) === "#" || ctx.rng() > 0.38) {
+        continue;
+      }
+      const center = cellCenter(c, r);
+      const alongX = ctx.rng() > 0.5;
+      const pipe = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.035 + ctx.rng() * 0.025, 0.035 + ctx.rng() * 0.025, tile * (1.4 + ctx.rng() * 0.9), 10),
+        materials.copperPipe
+      );
+      pipe.rotation.z = alongX ? Math.PI * 0.5 : 0;
+      pipe.rotation.x = alongX ? 0 : Math.PI * 0.5;
+      pipe.position.set(center.x, height - 0.12, center.z);
+      pipe.castShadow = true;
+      ctx.group.add(pipe);
+    }
+  }
+}

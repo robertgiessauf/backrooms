@@ -49,6 +49,14 @@ export function materialFor(materials, def, part) {
     }[part];
   }
 
+  if (def.theme === "level7") {
+    return {
+      wall: materials.level7Wall,
+      floor: materials.level7Floor,
+      ceiling: materials.level7Ceiling,
+    }[part];
+  }
+
   return {
     wall: materials.concreteWall,
     floor: materials.garageFloor,
@@ -206,18 +214,25 @@ export function createMaterials() {
     almondWater: new THREE.MeshStandardMaterial({ color: 0xd7c184, emissive: 0x2f2412, emissiveIntensity: 0.08, roughness: 0.46, metalness: 0.02 }),
     hotelWall,
     hotelFloor,
-    hotelCeiling: new THREE.MeshStandardMaterial({ color: 0x493128, roughness: 0.82 }),
-    hotelWood: new THREE.MeshStandardMaterial({ color: 0x4c2618, roughness: 0.58, metalness: 0.02 }),
+    hotelCeiling: new THREE.MeshStandardMaterial({ color: 0xc69d64, roughness: 0.72 }),
+    hotelWood: new THREE.MeshStandardMaterial({ color: 0x6f3b1f, roughness: 0.54, metalness: 0.02 }),
     hotelGold: new THREE.MeshStandardMaterial({ color: 0xb88934, roughness: 0.34, metalness: 0.5 }),
-    hotelFabric: new THREE.MeshStandardMaterial({ color: 0x6f1e1b, roughness: 0.86, metalness: 0 }),
-    hotelPainting: new THREE.MeshStandardMaterial({ color: 0x15100d, roughness: 0.78, metalness: 0 }),
+    hotelFabric: new THREE.MeshStandardMaterial({ color: 0x8b2420, roughness: 0.86, metalness: 0 }),
+    hotelPainting: new THREE.MeshStandardMaterial({ color: 0x7b1719, roughness: 0.78, metalness: 0 }),
+    hotelRedPanel: new THREE.MeshStandardMaterial({ color: 0x8e1f1f, roughness: 0.78, metalness: 0 }),
+    hotelMarble: new THREE.MeshStandardMaterial({ color: 0xb4744d, roughness: 0.48, metalness: 0.04 }),
+    plantLeaf: new THREE.MeshStandardMaterial({ color: 0x23462a, roughness: 0.88, metalness: 0 }),
     hotelSpeaker: new THREE.MeshStandardMaterial({ color: 0x211714, roughness: 0.7, metalness: 0.08 }),
-    darkConcrete: new THREE.MeshStandardMaterial({ color: 0x030303, roughness: 1, metalness: 0 }),
-    darkFloor: new THREE.MeshStandardMaterial({ color: 0x010101, roughness: 1, metalness: 0 }),
-    darkCeiling: new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 1, metalness: 0 }),
-    echoLine: new THREE.MeshBasicMaterial({ color: 0x6f8ca1, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
+    darkConcrete: new THREE.MeshStandardMaterial({ color: 0x090b0c, roughness: 1, metalness: 0 }),
+    darkFloor: new THREE.MeshStandardMaterial({ color: 0x050606, roughness: 1, metalness: 0 }),
+    darkCeiling: new THREE.MeshStandardMaterial({ color: 0x030304, roughness: 1, metalness: 0 }),
+    level7Wall: new THREE.MeshStandardMaterial({ color: 0x8b9697, roughness: 0.96, metalness: 0 }),
+    level7Floor: new THREE.MeshStandardMaterial({ color: 0x697577, roughness: 0.98, metalness: 0 }),
+    level7Ceiling: new THREE.MeshStandardMaterial({ color: 0x7d8788, roughness: 0.94, metalness: 0 }),
+    level7Water: new THREE.MeshStandardMaterial({ color: 0x446f80, emissive: 0x1d3946, emissiveIntensity: 0.24, transparent: true, opacity: 0.72, roughness: 0.2, metalness: 0.02 }),
+    level7Rock: new THREE.MeshStandardMaterial({ color: 0x596266, roughness: 0.92, metalness: 0.02 }),
+    bone: new THREE.MeshStandardMaterial({ color: 0xd6d0b8, roughness: 0.82, metalness: 0 }),
     darkWire: new THREE.MeshBasicMaterial({ color: 0x19242c, transparent: true, opacity: 0.18, depthWrite: false }),
-    waveHint: new THREE.MeshBasicMaterial({ color: 0x5e8db8, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }),
     copperPipe: new THREE.MeshStandardMaterial({ color: 0x8c5831, roughness: 0.58, metalness: 0.48 }),
     fume: new THREE.MeshBasicMaterial({ color: 0x9a9d8f, transparent: true, opacity: 0.18, depthWrite: false }),
     heatCeiling: new THREE.MeshStandardMaterial({ color: 0xff8b38, emissive: 0xff4d12, emissiveIntensity: 0.75, transparent: true, opacity: 0.72, roughness: 0.42 }),
@@ -495,53 +510,50 @@ function drawOfficeFloor(ctx, w, h) {
 }
 
 function drawHotelWall(ctx, w, h) {
-  ctx.fillStyle = "#4b1715";
+  ctx.fillStyle = "#c7a36f";
   ctx.fillRect(0, 0, w, h);
-  for (let x = 0; x < w; x += 28) {
-    ctx.fillStyle = "rgba(184,132,47,0.22)";
-    ctx.fillRect(x, 0, 3, h);
-    ctx.fillStyle = "rgba(89,30,25,0.38)";
-    ctx.fillRect(x + 8, 0, 8, h);
+  ctx.fillStyle = "rgba(245,218,158,0.42)";
+  ctx.fillRect(0, 0, w, h);
+  for (let x = 0; x < w; x += 42) {
+    ctx.fillStyle = "rgba(137,32,28,0.7)";
+    ctx.fillRect(x + 8, h * 0.18, 20, h * 0.58);
+    ctx.strokeStyle = "rgba(205,151,54,0.72)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x + 6, h * 0.16, 24, h * 0.62);
   }
-  for (let y = 12; y < h; y += 34) {
-    ctx.strokeStyle = "rgba(210,163,68,0.32)";
+  for (let y = 22; y < h; y += 42) {
+    ctx.strokeStyle = "rgba(119,72,32,0.22)";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    for (let x = 0; x <= w; x += 16) {
-      const py = y + Math.sin(x * 0.12) * 4;
-      if (x === 0) ctx.moveTo(x, py);
-      else ctx.lineTo(x, py);
-    }
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
     ctx.stroke();
   }
-  for (let i = 0; i < 36; i += 1) {
-    const x = (i * 53) % w;
-    const y = (i * 79) % h;
-    ctx.fillStyle = "rgba(17,9,8,0.18)";
-    ctx.beginPath();
-    ctx.ellipse(x, y, 5 + (i % 4), 9 + (i % 5), 0, 0, Math.PI * 2);
-    ctx.fill();
+  for (let i = 0; i < 180; i += 1) {
+    const shade = 165 + (i % 42);
+    ctx.fillStyle = `rgba(${shade + 20},${shade - 5},${shade - 42},0.12)`;
+    ctx.fillRect((i * 37) % w, (i * 79) % h, 1 + (i % 3), 1);
   }
 }
 
 function drawHotelFloor(ctx, w, h) {
-  ctx.fillStyle = "#2f1b13";
+  ctx.fillStyle = "#6b1716";
   ctx.fillRect(0, 0, w, h);
-  for (let y = 0; y < h; y += 26) {
-    const shade = 48 + (y % 34);
-    ctx.fillStyle = `rgba(${shade + 18},${shade - 2},${shade - 14},0.7)`;
-    ctx.fillRect(0, y, w, 24);
-    ctx.strokeStyle = "rgba(18,10,7,0.42)";
-    ctx.strokeRect(0, y, w, 24);
+  for (let y = 0; y < h; y += 24) {
+    for (let x = 0; x < w; x += 24) {
+      ctx.strokeStyle = "rgba(212,166,67,0.22)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x + 12, y + 12, 7, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(33,24,17,0.18)";
+      ctx.fillRect(x + 10, y + 10, 4, 4);
+    }
   }
-  for (let x = 0; x < w; x += 18) {
-    ctx.fillStyle = "rgba(111,76,36,0.18)";
-    ctx.fillRect(x, 0, 2, h);
-  }
-  for (let i = 0; i < 260; i += 1) {
-    const v = 54 + (i % 40);
-    ctx.fillStyle = `rgba(${v + 18},${v},${v - 16},0.2)`;
-    ctx.fillRect((i * 41) % w, (i * 67) % h, 4 + (i % 6), 1);
+  for (let i = 0; i < 420; i += 1) {
+    const v = 72 + (i % 38);
+    ctx.fillStyle = `rgba(${v + 35},${v - 12},${v - 16},0.2)`;
+    ctx.fillRect((i * 41) % w, (i * 67) % h, 2 + (i % 5), 1);
   }
 }
 

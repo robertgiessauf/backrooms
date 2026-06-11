@@ -31,7 +31,7 @@ export function updateSmilers(deps, dt) {
       animateSmiler(smiler, nextDistance, camera);
       if (nextDistance < SMILER_ATTACK_RANGE) {
         player.health = 0;
-        resetCurrentLevel("The smile reaches you from the dark.");
+        resetCurrentLevel();
         return;
       }
       continue;

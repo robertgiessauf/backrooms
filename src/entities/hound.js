@@ -68,7 +68,7 @@ export function updateHounds(deps, dt) {
         hound.attackCooldown = 1.2;
         flashMessage("The hound bites hard.");
         if (player.health <= 0) {
-          resetCurrentLevel("You wake on the cold concrete.");
+          resetCurrentLevel();
           return;
         }
       }

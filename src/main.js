@@ -393,7 +393,7 @@ function update(dt) {
   updateMovement(dt);
   updateJumpPhysics(dt);
   updateZones(dt);
-  updateLevel6Darkness(dt);
+  updateLevelHook(dt);
   updateTorch();
   updateHoundEntities(
     { state, player, camera, cameraDirection, tempVector, torchRange: TORCH_RANGE, distance2D, hitsSolidForRadius, flashMessage, resetCurrentLevel },
@@ -443,12 +443,18 @@ function updateMovement(dt) {
   }
 
   intent.normalize();
-  const speed = keys.has("ShiftLeft") || keys.has("ShiftRight") ? RUN_SPEED : player.grounded ? WALK_SPEED : JUMP_MOVE_SPEED;
+  const baseSpeed = keys.has("ShiftLeft") || keys.has("ShiftRight") ? RUN_SPEED : player.grounded ? WALK_SPEED : JUMP_MOVE_SPEED;
+  const speed = baseSpeed * getMovementMultiplier();
   const delta = intent.multiplyScalar(speed * dt);
 
   moveAxis(delta.x, 0);
   moveAxis(0, delta.z);
   player.stepPhase += speed * dt * 4.2;
+}
+
+function getMovementMultiplier() {
+  const hook = state.level?.def?.hooks?.movementMultiplier;
+  return hook ? hook(createLevelRuntimeApi(state.level)) : 1;
 }
 
 function updateJumpPhysics(dt) {
@@ -566,7 +572,7 @@ function updateZones(dt) {
         }
         flashMessage("The puddle opens.");
         if (player.health <= 0) {
-          resetCurrentLevel("You wake where the level first found you.");
+          resetCurrentLevel();
         }
       }
     }
@@ -581,7 +587,7 @@ function updateZones(dt) {
       player.damageCooldown = 0.9;
       flashMessage("Hot fumes pour from the pipes.");
       if (player.health <= 0) {
-        resetCurrentLevel("The fumes fade into machine noise.");
+        resetCurrentLevel();
         return;
       }
     }
@@ -605,7 +611,7 @@ function updateZones(dt) {
       player.damageCooldown = 0.8;
       flashMessage("The ceiling heat sears the air.");
       if (player.health <= 0) {
-        resetCurrentLevel("The metal ceiling cools above you.");
+        resetCurrentLevel();
         return;
       }
     }
@@ -625,31 +631,14 @@ function updateZones(dt) {
       }
       flashMessage("The window pulls at you.");
       if (player.health <= 0) {
-        resetCurrentLevel("The office lights buzz back into place.");
+        resetCurrentLevel();
         return;
       }
     }
   }
 
-  for (const wire of level.wireTraps) {
-    wire.cooldown = Math.max(0, (wire.cooldown || 0) - dt);
-    wire.mesh.material.opacity = 0.13 + Math.sin(clock.elapsedTime * 1.7 + wire.phase) * 0.035;
-    if (distance2D(wire, player.position) < wire.radius && wire.cooldown <= 0 && player.damageCooldown <= 0) {
-      player.health = Math.max(0, player.health - wire.damage);
-      player.damageCooldown = 0.85;
-      wire.cooldown = 2.6;
-      const push = new THREE.Vector3(player.position.x - wire.x, 0, player.position.z - wire.z);
-      if (push.lengthSq() > 0.001) {
-        push.normalize().multiplyScalar(0.52);
-        player.position.x += push.x;
-        player.position.z += push.z;
-      }
-      flashMessage("Something catches your legs in the dark.");
-      if (player.health <= 0) {
-        resetCurrentLevel("The dark returns you to the start.");
-        return;
-      }
-    }
+  if (level.def.hooks?.updateZones?.(createLevelRuntimeApi(level), dt)) {
+    return;
   }
 
   for (const zone of level.exitZones) {
@@ -668,6 +657,14 @@ function updateZones(dt) {
   }
 }
 
+function updateLevelHook(dt) {
+  const hook = state.level?.def?.hooks?.update;
+  if (!hook) {
+    return;
+  }
+  hook(createLevelRuntimeApi(state.level), dt);
+}
+
 function updateLights(dt) {
   const time = clock.elapsedTime;
   for (const fixture of state.level.flickerLights) {
@@ -681,26 +678,6 @@ function updateLights(dt) {
 
   for (const fan of state.level.fans) {
     fan.rotation.y += dt * 2.4;
-  }
-}
-
-function updateLevel6Darkness(dt) {
-  if (state.level?.def?.theme !== "level6") {
-    return;
-  }
-
-  const pulseCycle = 3.9;
-  const pulseWindow = 0.58;
-  const cycle = clock.elapsedTime % pulseCycle;
-  const pulse = cycle < pulseWindow ? Math.sin((cycle / pulseWindow) * Math.PI) : 0;
-
-  for (const marker of state.level.darkEchoes) {
-    const distance = distance2D(marker, player.position);
-    const proximity = THREE.MathUtils.clamp(1 - distance / marker.radius, 0, 1);
-    const base = marker.kind === "exit" ? 0.025 * proximity : 0;
-    const opacity = base + pulse * proximity * marker.strength;
-    marker.mesh.material.opacity = opacity;
-    marker.mesh.visible = opacity > 0.006;
   }
 }
 
@@ -1144,9 +1121,10 @@ function loadLevel(index, initial = false) {
 
 function resetCurrentLevel(text) {
   const levelIndex = state.levelIndex;
+  const reviveMessage = state.level?.def?.reviveMessage || text || "You wake where the level first found you.";
   player.health = 100;
   loadLevel(levelIndex);
-  flashMessage(text);
+  flashMessage(reviveMessage);
 }
 
 function completeCurrentBuild() {
@@ -1168,7 +1146,6 @@ function buildLevel(def) {
     fumeZones: [],
     heatZones: [],
     windowTraps: [],
-    wireTraps: [],
     fogZones: [],
     exitZones: [],
     manilaZones: [],
@@ -1180,7 +1157,6 @@ function buildLevel(def) {
     smilerSpawnPoints: [],
     smilerSpawnTimer: 4,
     deathmoths: [],
-    darkEchoes: [],
     walkables: [],
     flickerLights: [],
     fans: [],
@@ -1270,27 +1246,7 @@ function buildLevel(def) {
   }
 
   addLighting(ctx, def, rows, width, depth, cellCenter, charAt);
-  if (def.theme === "level0" && ctx.manilaZones.length > 0) {
-    addManilaLight(ctx);
-  }
-
-  if (def.theme === "level1" && !hasInventoryItem("torch")) {
-    addTorchPickup(ctx, ctx.start.x + tile * 0.7, ctx.start.z + tile * 0.15);
-  }
-
-  if (def.theme === "level1") {
-    addGarageLines(ctx, rows, width, depth, cellCenter, charAt, tile);
-  } else if (def.theme === "level2") {
-    addLevel2CeilingPipes(ctx, rows, width, depth, cellCenter, charAt, tile, height);
-  } else if (def.theme === "level3") {
-    addLevel3CeilingDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height);
-  } else if (def.theme === "level4") {
-    addLevel4OfficeDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height);
-  } else if (def.theme === "level5") {
-    addLevel5HotelDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height);
-  } else if (def.theme === "level6") {
-    addLevel6DarknessDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height);
-  }
+  def.hooks?.afterBuild?.(createLevelBuildApi(ctx, rows, width, depth, cellCenter, charAt, tile, height));
 
   if (levelHasEntity(def, "smiler")) {
     prepareSmilerSpawnPoints(ctx, rows, width, depth, cellCenter, charAt, tile, { distance2D });
@@ -1302,6 +1258,43 @@ function buildLevel(def) {
   return ctx;
 }
 
+function createLevelBuildApi(ctx, rows, width, depth, cellCenter, charAt, tile, height) {
+  return {
+    THREE,
+    ctx,
+    rows,
+    width,
+    depth,
+    cellCenter,
+    charAt,
+    tile,
+    height,
+    materials,
+    hasInventoryItem,
+    addTorchPickup,
+    addGarageLines,
+    addManilaLight,
+    addChandelier,
+    addWindowTrim,
+  };
+}
+
+function createLevelRuntimeApi(level) {
+  return {
+    THREE,
+    state,
+    level,
+    player,
+    playerHeight: PLAYER_HEIGHT,
+    scene,
+    clock,
+    materials,
+    distance2D,
+    flashMessage,
+    resetCurrentLevel,
+  };
+}
+
 function addFloorCeiling(ctx, def, x, z, tile, height, ch) {
   const floorMat = ch === "M" ? materials.manilaCarpet : materialFor(materials, def, "floor");
   const ceilingMat = materialFor(materials, def, "ceiling");
@@ -1310,6 +1303,12 @@ function addFloorCeiling(ctx, def, x, z, tile, height, ch) {
 }
 
 function addCellFeature(ctx, def, ch, x, z, tile, height, c, r, charAt) {
+  const levelFeatureHandler = def.hooks?.featureHandlers?.[ch];
+  if (levelFeatureHandler) {
+    levelFeatureHandler({ ctx, def, ch, x, z, tile, height, c, r, charAt, materials, THREE, addWindowTrim });
+    return;
+  }
+
   if (def.theme === "level0") {
     if (ch === "M") {
       addManilaAmbience(ctx, x, z, tile, height);
@@ -1323,8 +1322,6 @@ function addCellFeature(ctx, def, ch, x, z, tile, height, c, r, charAt) {
     addSupplyStation(ctx, x, z, tile, height);
   } else if (ch === "R") {
     addOfficeFurniture(ctx, x, z, tile);
-  } else if (ch === "Q") {
-    addTrapWindow(ctx, x, z, tile, height, c, r, charAt);
   } else if (ch === "O") {
     addPillar(ctx, x, z, height);
   } else if (ch === "C") {
@@ -1361,8 +1358,6 @@ function addCellFeature(ctx, def, ch, x, z, tile, height, c, r, charAt) {
     addHotelDoor(ctx, x, z, tile, height, c, r, charAt);
   } else if (ch === "J") {
     addGramophone(ctx, x, z, tile);
-  } else if (ch === "w") {
-    addLevel6WireTrap(ctx, x, z, tile);
   }
 }
 
@@ -1393,7 +1388,8 @@ function addBox(ctx, x, y, z, w, h, d, material, solid = true) {
 }
 
 function addLighting(ctx, def, rows, width, depth, cellCenter, charAt) {
-  const maxPointLights = def.theme === "level0" ? 28 : def.theme === "level2" ? 24 : def.theme === "level3" ? 18 : def.theme === "level4" ? 26 : def.theme === "level5" ? 24 : 22;
+  const lighting = def.lighting || {};
+  const maxPointLights = lighting.maxPointLights ?? 22;
   let pointLights = 0;
 
   for (let r = 1; r < depth - 1; r += 1) {
@@ -1404,20 +1400,14 @@ function addLighting(ctx, def, rows, width, depth, cellCenter, charAt) {
       }
       const center = cellCenter(c, r);
       const manila = ch === "M";
-      const shouldLight =
-        (def.theme === "level0" && !manila && ctx.rng() < 0.18) ||
-        (def.theme === "level1" && (r % 3 === 1) && (c % 4 === 2)) ||
-        (def.theme === "level2" && (r % 5 === 2) && (c % 5 === 2)) ||
-        (def.theme === "level3" && (r % 7 === 3) && (c % 8 === 4)) ||
-        (def.theme === "level4" && (r % 5 === 1) && (c % 6 === 3)) ||
-        (def.theme === "level5" && (r % 4 === 1) && (c % 7 === 3));
+      const shouldLight = lighting.shouldLight?.({ ctx, r, c, ch, manila }) || false;
       if (!shouldLight) {
         continue;
       }
 
       const fixture = addFluorescent(ctx, center.x, center.z, def.ceiling - 0.08, def.theme, manila);
       if (pointLights < maxPointLights) {
-        const light = new THREE.PointLight(manila ? 0xffa646 : def.theme === "level0" ? 0xffefac : def.theme === "level2" ? 0xffd7a0 : def.theme === "level3" ? 0xffb16a : def.theme === "level4" ? 0xf4f1dc : def.theme === "level5" ? 0xffba68 : 0xddeeff, manila ? 1.25 : def.theme === "level2" ? 0.58 : def.theme === "level3" ? 0.42 : def.theme === "level4" ? 0.66 : def.theme === "level5" ? 0.52 : 0.72, def.tile * 4.4, 1.6);
+        const light = new THREE.PointLight(manila ? 0xffa646 : lighting.color ?? 0xddeeff, manila ? 1.25 : lighting.intensity ?? 0.72, def.tile * 4.4, 1.6);
         light.position.set(center.x, def.ceiling - 0.45, center.z);
         light.castShadow = false;
         ctx.group.add(light);
@@ -1737,43 +1727,6 @@ function addDebris(ctx, x, z, tile) {
   }
 }
 
-function addLevel2CeilingPipes(ctx, rows, width, depth, cellCenter, charAt, tile, height) {
-  for (let r = 2; r < depth - 2; r += 3) {
-    for (let c = 2; c < width - 2; c += 5) {
-      if (charAt(c, r) === "#" || ctx.rng() > 0.58) {
-        continue;
-      }
-      const center = cellCenter(c, r);
-      const alongX = ctx.rng() > 0.35;
-      const radius = 0.045 + ctx.rng() * 0.025;
-      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, tile * (1.85 + ctx.rng() * 1.15), 12), ctx.rng() > 0.45 ? materials.pipeDark : materials.pipe);
-      pipe.rotation.z = alongX ? Math.PI * 0.5 : 0;
-      pipe.rotation.x = alongX ? 0 : Math.PI * 0.5;
-      pipe.position.set(center.x, height - radius - 0.045, center.z);
-      pipe.castShadow = true;
-      ctx.group.add(pipe);
-    }
-  }
-}
-
-function addLevel3CeilingDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height) {
-  for (let r = 3; r < depth - 3; r += 6) {
-    for (let c = 3; c < width - 3; c += 8) {
-      if (charAt(c, r) === "#" || ctx.rng() > 0.38) {
-        continue;
-      }
-      const center = cellCenter(c, r);
-      const alongX = ctx.rng() > 0.5;
-      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.035 + ctx.rng() * 0.025, 0.035 + ctx.rng() * 0.025, tile * (1.4 + ctx.rng() * 0.9), 10), materials.copperPipe);
-      pipe.rotation.z = alongX ? Math.PI * 0.5 : 0;
-      pipe.rotation.x = alongX ? 0 : Math.PI * 0.5;
-      pipe.position.set(center.x, height - 0.12, center.z);
-      pipe.castShadow = true;
-      ctx.group.add(pipe);
-    }
-  }
-}
-
 function addTorchPickup(ctx, x, z) {
   const group = new THREE.Group();
   group.position.set(x, 0.08, z);
@@ -1934,75 +1887,12 @@ function addOfficeFurniture(ctx, x, z, tile) {
   ctx.colliders.push({ minX: x - tile * 0.34, maxX: x + tile * 0.34, minZ: z - tile * 0.25, maxZ: z + tile * 0.25, minY: 0, maxY: LOW_OBSTACLE_CLEARANCE, lowObstacle: true });
 }
 
-function addTrapWindow(ctx, x, z, tile, height, c, r, charAt) {
-  const wall = getWindowWall(c, r, charAt);
-  if (!wall) {
-    return;
-  }
-  const alongX = wall === "north" || wall === "south";
-  const side = wall === "north" || wall === "west" ? -1 : 1;
-  const offset = tile * 0.5 - 0.115;
-  const panelW = tile * 0.72;
-  const panelH = 0.9;
-  const panelD = 0.025;
-  const wx = x + (!alongX ? side * offset : 0);
-  const wz = z + (alongX ? side * offset : 0);
-  const wy = height * 0.56;
-  const window = new THREE.Mesh(
-    new THREE.BoxGeometry(alongX ? panelW : panelD, panelH, alongX ? panelD : panelW),
-    materials.trapWindow.clone()
-  );
-  window.position.set(wx, wy, wz);
-  ctx.group.add(window);
-
-  addWindowTrim(ctx, wx, wy, wz, alongX, panelW, panelH, panelD, materials.officeTrim);
-  ctx.windowTraps.push({ x: window.position.x, z: window.position.z, radius: tile * 0.92, damage: 34, mesh: window, phase: ctx.rng() * Math.PI * 2 });
-}
-
 function getWindowWall(c, r, charAt) {
   if (charAt(c, r - 1) === "#") return "north";
   if (charAt(c + 1, r) === "#") return "east";
   if (charAt(c, r + 1) === "#") return "south";
   if (charAt(c - 1, r) === "#") return "west";
   return null;
-}
-
-function addLevel4OfficeDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height) {
-  for (let r = 1; r < depth - 1; r += 1) {
-    for (let c = 1; c < width - 1; c += 1) {
-      if (charAt(c, r) === "#" || charAt(c, r) === "Q") {
-        continue;
-      }
-      if ((charAt(c, r - 1) === "#" || charAt(c + 1, r) === "#" || charAt(c, r + 1) === "#" || charAt(c - 1, r) === "#") && ctx.rng() < 0.1) {
-        const center = cellCenter(c, r);
-        addBlackedWindow(ctx, center.x, center.z, tile, height, c, r, charAt);
-      }
-    }
-  }
-}
-
-function addBlackedWindow(ctx, x, z, tile, height, c, r, charAt) {
-  const wall = getWindowWall(c, r, charAt);
-  if (!wall) {
-    return;
-  }
-  const alongX = wall === "north" || wall === "south";
-  const side = wall === "north" || wall === "west" ? -1 : 1;
-  const offset = tile * 0.5 - 0.115;
-  const panelW = tile * 0.62;
-  const panelH = 0.64;
-  const panelD = 0.025;
-  const wx = x + (!alongX ? side * offset : 0);
-  const wz = z + (alongX ? side * offset : 0);
-  const wy = height * 0.58;
-  const window = new THREE.Mesh(
-    new THREE.BoxGeometry(alongX ? panelW : panelD, panelH, alongX ? panelD : panelW),
-    materials.blackedWindow
-  );
-  window.position.set(wx, wy, wz);
-  ctx.group.add(window);
-
-  addWindowTrim(ctx, wx, wy, wz, alongX, panelW, panelH, panelD, materials.officeTrim);
 }
 
 function addWindowTrim(ctx, x, y, z, alongX, panelW, panelH, panelD, material) {
@@ -2027,105 +1917,6 @@ function addWindowTrim(ctx, x, y, z, alongX, panelW, panelH, panelD, material) {
     mesh.receiveShadow = true;
     ctx.group.add(mesh);
   }
-}
-
-function addLevel5HotelDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height) {
-  for (let r = 3; r < depth - 3; r += 8) {
-    for (let c = 6; c < width - 6; c += 14) {
-      if (charAt(c, r) === "#") {
-        continue;
-      }
-      const center = cellCenter(c, r);
-      addChandelier(ctx, center.x, center.z, height);
-    }
-  }
-}
-
-function addLevel6DarknessDetails(ctx, rows, width, depth, cellCenter, charAt, tile, height) {
-  for (let r = 1; r < depth - 1; r += 1) {
-    for (let c = 1; c < width - 1; c += 1) {
-      const ch = charAt(c, r);
-      if (ch === "#") {
-        continue;
-      }
-      const center = cellCenter(c, r);
-      if (ch === "E") {
-        addLevel6ExitBeacon(ctx, center.x, center.z, tile);
-      }
-      if ((r + c) % 3 !== 0 || ctx.rng() > 0.54) {
-        continue;
-      }
-      addLevel6EchoMarker(ctx, center.x, center.z, tile, height, c, r, charAt);
-    }
-  }
-}
-
-function addLevel6EchoMarker(ctx, x, z, tile, height, c, r, charAt) {
-  const wall = getWindowWall(c, r, charAt);
-  const material = materials.echoLine.clone();
-  let mesh;
-  if (wall) {
-    const alongX = wall === "north" || wall === "south";
-    const side = wall === "north" || wall === "west" ? -1 : 1;
-    mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(alongX ? tile * 0.42 : 0.012, 0.028, alongX ? 0.012 : tile * 0.42),
-      material
-    );
-    mesh.position.set(
-      x + (!alongX ? side * (tile * 0.5 - 0.014) : 0),
-      0.48 + ctx.rng() * Math.max(0.4, height - 1.1),
-      z + (alongX ? side * (tile * 0.5 - 0.014) : 0)
-    );
-  } else {
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(tile * 0.42, 0.01, 0.018), material);
-    mesh.position.set(x, 0.018, z);
-    mesh.rotation.y = Math.floor(ctx.rng() * 4) * Math.PI * 0.5;
-  }
-  mesh.visible = false;
-  ctx.group.add(mesh);
-  ctx.darkEchoes.push({ x, z, mesh, radius: tile * 6.8, strength: 0.28 + ctx.rng() * 0.16, kind: "echo" });
-}
-
-function addLevel6ExitBeacon(ctx, x, z, tile) {
-  const ringMaterial = materials.waveHint.clone();
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(tile * 0.26, 0.012, 8, 28), ringMaterial);
-  ring.position.set(x, 0.035, z);
-  ring.rotation.x = Math.PI * 0.5;
-  ring.visible = false;
-  ctx.group.add(ring);
-  ctx.darkEchoes.push({ x, z, mesh: ring, radius: tile * 11, strength: 0.5, kind: "exit" });
-
-  const lineMaterial = materials.waveHint.clone();
-  const line = new THREE.Mesh(new THREE.BoxGeometry(tile * 0.58, 0.015, 0.018), lineMaterial);
-  line.position.set(x, 0.05, z);
-  line.visible = false;
-  ctx.group.add(line);
-  ctx.darkEchoes.push({ x, z, mesh: line, radius: tile * 9, strength: 0.36, kind: "exit" });
-}
-
-function addLevel6WireTrap(ctx, x, z, tile) {
-  const material = materials.darkWire.clone();
-  const group = new THREE.Group();
-  group.position.set(x, 0.048, z);
-  group.rotation.y = Math.floor(ctx.rng() * 4) * Math.PI * 0.5 + (ctx.rng() - 0.5) * 0.3;
-
-  for (let i = 0; i < 3; i += 1) {
-    const wire = new THREE.Mesh(new THREE.BoxGeometry(tile * (0.58 + ctx.rng() * 0.18), 0.012, 0.018), material);
-    wire.position.set(0, i * 0.018, (i - 1) * 0.09);
-    wire.rotation.y = (ctx.rng() - 0.5) * 0.18;
-    group.add(wire);
-  }
-
-  ctx.group.add(group);
-  ctx.wireTraps.push({
-    x,
-    z,
-    radius: tile * 0.48,
-    damage: 19,
-    mesh: group.children[0],
-    phase: ctx.rng() * Math.PI * 2,
-    cooldown: 0,
-  });
 }
 
 function addHotelFurniture(ctx, x, z, tile) {

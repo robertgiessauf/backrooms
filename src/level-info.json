@@ -96,15 +96,15 @@
     "sections": [
       {
         "heading": "Objective",
-        "text": "Cross the Main Hall and push deep into the Boiler Room to find the exit toward the next level."
+        "text": "Move through the hotel corridors, lobbies, and side rooms to find the exit toward the next level."
       },
       {
         "heading": "Survival",
         "items": [
-          "The hotel halls are cleaner and quieter than they should be. Do not let the furniture and music make you stop moving.",
+          "The hotel halls are cleaner and brighter than they should be. Do not let the furniture and music make you stop moving.",
           "Deathmoths nest throughout Level 5 and are more common here than in earlier levels.",
-          "The Boiler Room is tighter, hotter, and filled with steam vents and old machinery.",
-          "Almond Water can still be found in the Main Hall. Stock up before entering the boiler side.",
+          "Large lobbies are easier to scan, but long hallways expose you from far away.",
+          "Almond Water can still be found in rooms and public areas.",
           "The torch helps with hounds, but active light can attract deathmoths."
         ]
       }
@@ -115,15 +115,33 @@
     "sections": [
       {
         "heading": "Objective",
-        "text": "Move through the dark maze and find the faint exit signal. The torch will not pierce this level."
+        "text": "Move through the dark maze and find the exit. The torch will not pierce this level."
       },
       {
         "heading": "Survival",
         "items": [
-          "Short echo pulses occasionally reveal scraps of wall, floor, or the exit marker for a moment.",
+          "Ambient pulses occasionally reveal enough of the maze to choose a direction.",
           "Move carefully. Low wire traps are almost invisible until you are near them.",
           "The level is navigable, but visibility is intentionally unreliable. Listen, count turns, and use the pulse flashes to keep direction.",
           "Classification 5 means this level is meant to feel hostile even without visible entities."
+        ]
+      }
+    ]
+  },
+  "7": {
+    "title": "Level 7",
+    "sections": [
+      {
+        "heading": "Objective",
+        "text": "Leave the entrance room, cross the cold ocean, and find the pipe-ring exit platform."
+      },
+      {
+        "heading": "Survival",
+        "items": [
+          "Open water slows movement and gradually causes cold exposure damage.",
+          "Rock islands and the exit platform let you recover from the cold.",
+          "Bones and pipe markers indicate you are moving into more dangerous water.",
+          "Keep trips away from the entrance short unless you can see the next safe island."
         ]
       }
     ]

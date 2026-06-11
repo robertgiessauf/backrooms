@@ -67,7 +67,7 @@ export function updateDeathmoths(deps, dt) {
       moth.damageCooldown = 0.85;
       flashMessage("The moth burns against your skin.");
       if (player.health <= 0) {
-        resetCurrentLevel("The wings fade into the tunnel dark.");
+        resetCurrentLevel();
         return;
       }
     }

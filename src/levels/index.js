@@ -1,10 +1,11 @@
 import { createLevel0Map } from "./level0.js";
 import { createLevel1Map } from "./level1.js";
-import { createLevel2Map } from "./level2.js";
-import { createLevel3Map } from "./level3.js";
-import { createLevel4Map } from "./level4.js";
-import { createLevel5Map } from "./level5.js";
-import { createLevel6Map } from "./level6.js";
+import { createLevel2Map, level2Hooks } from "./level2.js";
+import { createLevel3Map, level3Hooks } from "./level3.js";
+import { createLevel4Map, level4Hooks } from "./level4.js";
+import { createLevel5Map, level5Hooks } from "./level5.js";
+import { createLevel6Map, level6Hooks } from "./level6.js";
+import { createLevel7Map, level7Hooks } from "./level7.js";
 
 export const LEVELS = [
   {
@@ -20,6 +21,20 @@ export const LEVELS = [
     hum: { base: 66, buzz: 118, volume: 0.075 },
     createMap: createLevel0Map,
     theme: "level0",
+    reviveMessage: "You wake under the buzzing yellow lights.",
+    lighting: {
+      maxPointLights: 28,
+      shouldLight: ({ ctx, manila }) => !manila && ctx.rng() < 0.18,
+      color: 0xffefac,
+      intensity: 0.72,
+    },
+    hooks: {
+      afterBuild: ({ ctx, addManilaLight }) => {
+        if (ctx.manilaZones.length > 0) {
+          addManilaLight(ctx);
+        }
+      },
+    },
   },
   {
     id: "1",
@@ -35,6 +50,20 @@ export const LEVELS = [
     createMap: createLevel1Map,
     theme: "level1",
     entities: ["hound"],
+    reviveMessage: "You wake on the garage floor.",
+    lighting: {
+      shouldLight: ({ r, c }) => r % 3 === 1 && c % 4 === 2,
+      color: 0xddeeff,
+      intensity: 0.72,
+    },
+    hooks: {
+      afterBuild: ({ ctx, rows, width, depth, cellCenter, charAt, tile, addGarageLines, addTorchPickup, hasInventoryItem }) => {
+        if (!hasInventoryItem("torch")) {
+          addTorchPickup(ctx, ctx.start.x + tile * 0.7, ctx.start.z + tile * 0.15);
+        }
+        addGarageLines(ctx, rows, width, depth, cellCenter, charAt, tile);
+      },
+    },
   },
   {
     id: "2",
@@ -51,6 +80,14 @@ export const LEVELS = [
     createMap: createLevel2Map,
     theme: "level2",
     entities: ["smiler", "deathmoth"],
+    reviveMessage: "You wake in the maintenance tunnels.",
+    lighting: {
+      maxPointLights: 24,
+      shouldLight: ({ r, c }) => r % 5 === 2 && c % 5 === 2,
+      color: 0xffd7a0,
+      intensity: 0.58,
+    },
+    hooks: level2Hooks,
   },
   {
     id: "3",
@@ -67,6 +104,14 @@ export const LEVELS = [
     createMap: createLevel3Map,
     theme: "level3",
     entities: ["smiler"],
+    reviveMessage: "You wake beneath the metal ceiling.",
+    lighting: {
+      maxPointLights: 18,
+      shouldLight: ({ r, c }) => r % 7 === 3 && c % 8 === 4,
+      color: 0xffb16a,
+      intensity: 0.42,
+    },
+    hooks: level3Hooks,
   },
   {
     id: "4",
@@ -83,6 +128,14 @@ export const LEVELS = [
     createMap: createLevel4Map,
     theme: "level4",
     entities: ["hound"],
+    reviveMessage: "You wake under the office lights.",
+    lighting: {
+      maxPointLights: 26,
+      shouldLight: ({ r, c }) => r % 5 === 1 && c % 6 === 3,
+      color: 0xf4f1dc,
+      intensity: 0.66,
+    },
+    hooks: level4Hooks,
   },
   {
     id: "5",
@@ -92,14 +145,22 @@ export const LEVELS = [
     startFacing: Math.PI * 0.5,
     ceiling: 3.35,
     tile: 2.9,
-    fog: { color: 0x3b241f, near: 13, far: 48 },
-    ambient: 0xd0a066,
-    ambientIntensity: 0.44,
+    fog: { color: 0x745739, near: 18, far: 68 },
+    ambient: 0xf0c582,
+    ambientIntensity: 0.62,
     hum: { base: 45, buzz: 88, volume: 0.052 },
     createMap: createLevel5Map,
     theme: "level5",
     entities: ["hound", "deathmoth"],
     deathmothCount: 12,
+    reviveMessage: "You wake on the hotel carpet.",
+    lighting: {
+      maxPointLights: 24,
+      shouldLight: ({ r, c }) => r % 4 === 1 && c % 7 === 3,
+      color: 0xffba68,
+      intensity: 0.76,
+    },
+    hooks: level5Hooks,
   },
   {
     id: "6",
@@ -115,5 +176,30 @@ export const LEVELS = [
     hum: { base: 24, buzz: 36, volume: 0.008 },
     createMap: createLevel6Map,
     theme: "level6",
+    reviveMessage: "You wake in the dark.",
+    lighting: {
+      shouldLight: () => false,
+    },
+    hooks: level6Hooks,
+  },
+  {
+    id: "7",
+    name: "Level 7",
+    classification: 4,
+    classificationLabel: "4",
+    startFacing: Math.PI,
+    ceiling: 4.5,
+    tile: 3.0,
+    fog: { color: 0xa9b8bc, near: 24, far: 115 },
+    ambient: 0xd8e2df,
+    ambientIntensity: 1.05,
+    hum: { base: 28, buzz: 44, volume: 0.018 },
+    createMap: createLevel7Map,
+    theme: "level7",
+    reviveMessage: "You surface beside the entrance room.",
+    lighting: {
+      shouldLight: () => false,
+    },
+    hooks: level7Hooks,
   },
 ];
