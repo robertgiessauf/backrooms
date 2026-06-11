@@ -22,6 +22,14 @@ export const LEVELS = [
     createMap: createLevel0Map,
     theme: "level0",
     reviveMessage: "You wake under the buzzing yellow lights.",
+    lightingProfile: {
+      sky: 0xf1d87a,
+      ground: 0x2b2510,
+      ambientIntensity: 0.55,
+      exposure: 1.28,
+      baseFillIntensity: 0.18,
+      fill: { color: 0x6b5c25, intensity: 0.1 },
+    },
     lighting: {
       maxPointLights: 28,
       shouldLight: ({ ctx, manila }) => !manila && ctx.rng() < 0.18,
@@ -51,6 +59,15 @@ export const LEVELS = [
     theme: "level1",
     entities: ["hound"],
     reviveMessage: "You wake on the garage floor.",
+    lightingProfile: {
+      sky: 0xc6d2ce,
+      ground: 0x252823,
+      ambientIntensity: 0.72,
+      exposure: 1.25,
+      baseFillIntensity: 0.18,
+      fill: { color: 0x87948a, intensity: 0.08 },
+      directional: { color: 0xc9d8d4, intensity: 0.2, position: { x: -7, y: 11, z: 5 } },
+    },
     lighting: {
       shouldLight: ({ r, c }) => r % 3 === 1 && c % 4 === 2,
       color: 0xddeeff,
@@ -81,6 +98,14 @@ export const LEVELS = [
     theme: "level2",
     entities: ["smiler", "deathmoth"],
     reviveMessage: "You wake in the maintenance tunnels.",
+    lightingProfile: {
+      sky: 0xc7aa8b,
+      ground: 0x1c1711,
+      ambientIntensity: 0.9,
+      exposure: 1.32,
+      baseFillIntensity: 0.2,
+      fill: { color: 0x806349, intensity: 0.12 },
+    },
     lighting: {
       maxPointLights: 24,
       shouldLight: ({ r, c }) => r % 5 === 2 && c % 5 === 2,
@@ -105,6 +130,14 @@ export const LEVELS = [
     theme: "level3",
     entities: ["smiler"],
     reviveMessage: "You wake beneath the metal ceiling.",
+    lightingProfile: {
+      sky: 0x705947,
+      ground: 0x120f0d,
+      ambientIntensity: 0.58,
+      exposure: 1.24,
+      baseFillIntensity: 0.16,
+      fill: { color: 0x5d3f2b, intensity: 0.08 },
+    },
     lighting: {
       maxPointLights: 18,
       shouldLight: ({ r, c }) => r % 7 === 3 && c % 8 === 4,
@@ -129,6 +162,15 @@ export const LEVELS = [
     theme: "level4",
     entities: ["hound"],
     reviveMessage: "You wake under the office lights.",
+    lightingProfile: {
+      sky: 0xe8e9db,
+      ground: 0x72786d,
+      ambientIntensity: 0.84,
+      exposure: 1.26,
+      baseFillIntensity: 0.18,
+      fill: { color: 0xdad7c2, intensity: 0.1 },
+      directional: { color: 0xf7f3da, intensity: 0.22, position: { x: 9, y: 13, z: -8 } },
+    },
     lighting: {
       maxPointLights: 26,
       shouldLight: ({ r, c }) => r % 5 === 1 && c % 6 === 3,
@@ -154,6 +196,15 @@ export const LEVELS = [
     entities: ["hound", "deathmoth"],
     deathmothCount: 12,
     reviveMessage: "You wake on the hotel carpet.",
+    lightingProfile: {
+      sky: 0xffc47a,
+      ground: 0x4a2515,
+      ambientIntensity: 0.92,
+      exposure: 1.3,
+      baseFillIntensity: 0.18,
+      fill: { color: 0xa75b2e, intensity: 0.12 },
+      directional: { color: 0xffd197, intensity: 0.18, position: { x: -5, y: 10, z: -9 } },
+    },
     lighting: {
       maxPointLights: 24,
       shouldLight: ({ r, c }) => r % 4 === 1 && c % 7 === 3,
@@ -177,6 +228,13 @@ export const LEVELS = [
     createMap: createLevel6Map,
     theme: "level6",
     reviveMessage: "You wake in the dark.",
+    lightingProfile: {
+      sky: 0x020202,
+      ground: 0x000000,
+      ambientIntensity: 0.012,
+      exposure: 1,
+      baseFillIntensity: 0.01,
+    },
     lighting: {
       shouldLight: () => false,
     },
@@ -197,6 +255,15 @@ export const LEVELS = [
     createMap: createLevel7Map,
     theme: "level7",
     reviveMessage: "You surface beside the entrance room.",
+    lightingProfile: {
+      sky: 0xe7efeb,
+      ground: 0x8da3aa,
+      ambientIntensity: 1.28,
+      exposure: 1.32,
+      baseFillIntensity: 0.18,
+      fill: { color: 0xc9d8d7, intensity: 0.2 },
+      directional: { color: 0xf0f4ed, intensity: 0.36, position: { x: -12, y: 16, z: 8 } },
+    },
     lighting: {
       shouldLight: () => false,
     },

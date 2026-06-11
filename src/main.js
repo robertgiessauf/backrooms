@@ -1,7 +1,7 @@
 ﻿import * as THREE from "../vendor/three.module.js";
 import { LEVELS } from './levels.js';
 import { createMaterials, materialFor } from './materials.js';
-import { resumeAudioContext } from './audio.js';
+import { playPickupSound, playUseSound, resumeAudioContext } from './audio.js';
 import { addHound as addHoundEntity, loadHoundModel as loadHoundModelEntity, updateHounds as updateHoundEntities } from "./entities/hound.js";
 import { addDeathmoths as addDeathmothEntities, loadDeathmothModel as loadDeathmothModelEntity, updateDeathmoths as updateDeathmothEntities } from "./entities/deathmoth.js";
 import { prepareSmilerSpawns as prepareSmilerSpawnPoints, updateSmilers as updateSmilerEntities } from "./entities/smiler.js";
@@ -24,6 +24,8 @@ const inventoryClose = document.getElementById("inventory-close");
 const levelInfoPanel = document.getElementById("level-info");
 const introInfoDialog = document.getElementById("intro-info-dialog");
 const introInfoClose = document.getElementById("intro-info-close");
+const interactionHint = document.getElementById("interaction-hint");
+const deathTransition = document.getElementById("death-transition");
 const query = new URLSearchParams(window.location.search);
 
 const PLAYER_HEIGHT = 1.68;
@@ -52,6 +54,8 @@ const renderer = new THREE.WebGLRenderer({
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.LinearToneMapping;
+renderer.toneMappingExposure = 1;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 mount.appendChild(renderer.domElement);
@@ -92,6 +96,8 @@ const state = {
   equippedItemId: null,
   inventoryOpen: false,
   inventoryOpenedFromMenu: false,
+  focusedPickup: null,
+  reviveTransitioning: false,
   torchLight: null,
   torchTarget: null,
   visitedLevels: new Set([0]),
@@ -415,6 +421,7 @@ function update(dt) {
   camera.position.y = PLAYER_HEIGHT + player.verticalOffset + Math.sin(player.stepPhase) * 0.035;
   camera.rotation.y = player.yaw;
   camera.rotation.x = player.pitch;
+  updateInteractionHint();
 }
 
 function updateMovement(dt) {
@@ -892,6 +899,7 @@ function equipItem(itemId) {
 }
 
 function useItem(itemId) {
+  resumeAudio();
   const item = state.inventory.find((entry) => entry.id === itemId);
   if (!item || item.type !== "consumable") {
     return;
@@ -906,23 +914,13 @@ function useItem(itemId) {
     saveInventory();
     renderInventory();
     updateHud(0);
+    playUseSound(state.audio);
     flashMessage(`${item.name} restored health.`);
   }
 }
 
 function tryPickupFocusedObject() {
-  if (!state.level || state.level.pickupMeshes.length === 0) {
-    return false;
-  }
-
-  raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-  raycaster.far = PICKUP_RANGE;
-  const hits = raycaster.intersectObjects(state.level.pickupMeshes, true);
-  if (hits.length === 0) {
-    return false;
-  }
-
-  const pickup = findPickupFromObject(hits[0].object);
+  const pickup = getFocusedPickup();
   if (!pickup || pickup.collected) {
     return false;
   }
@@ -933,9 +931,42 @@ function tryPickupFocusedObject() {
     addInventoryItem(pickup.id, pickup.quantity ?? 1);
     saveInventory();
   }
+  playPickupSound(state.audio);
   flashMessage(pickup.id === "torch" ? "Torch picked up. Open inventory with E." : `${pickup.name} picked up.`);
   renderInventory();
+  updateInteractionHint();
   return true;
+}
+
+function updateInteractionHint() {
+  const pickup = getFocusedPickup();
+  state.focusedPickup = pickup;
+  if (!interactionHint) {
+    return;
+  }
+
+  const canShow = pickup && document.pointerLockElement === renderer.domElement && !state.inventoryOpen && !player.ended;
+  interactionHint.classList.toggle("is-visible", Boolean(canShow));
+  if (canShow) {
+    interactionHint.textContent = `Click to pick up ${pickup.name}`;
+  }
+}
+
+function getFocusedPickup() {
+  if (!state.level || state.level.pickupMeshes.length === 0 || state.inventoryOpen || player.ended) {
+    return null;
+  }
+
+  raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+  raycaster.far = PICKUP_RANGE;
+  const hits = raycaster.intersectObjects(state.level.pickupMeshes, true);
+  for (const hit of hits) {
+    const pickup = findPickupFromObject(hit.object);
+    if (pickup && !pickup.collected) {
+      return pickup;
+    }
+  }
+  return null;
 }
 
 function findPickupFromObject(object) {
@@ -1099,8 +1130,7 @@ function loadLevel(index, initial = false) {
   state.level = world;
   scene.add(world.group);
 
-  const hemi = new THREE.HemisphereLight(runtimeDef.ambient, 0x11140f, runtimeDef.ambientIntensity ?? (runtimeDef.theme === "level0" ? 0.32 : 0.42));
-  scene.add(hemi);
+  applyLevelLighting(runtimeDef);
 
   player.position.copy(world.start);
   player.yaw = runtimeDef.startFacing;
@@ -1119,12 +1149,54 @@ function loadLevel(index, initial = false) {
   }
 }
 
+function applyLevelLighting(def) {
+  const profile = def.lightingProfile || {};
+  const ambientIntensity = profile.ambientIntensity ?? def.ambientIntensity ?? 0.42;
+  const hemi = new THREE.HemisphereLight(profile.sky ?? def.ambient, profile.ground ?? 0x11140f, ambientIntensity);
+  scene.add(hemi);
+
+  scene.add(new THREE.AmbientLight(profile.baseFillColor ?? def.ambient, profile.baseFillIntensity ?? 0.16));
+
+  if (profile.fill) {
+    scene.add(new THREE.AmbientLight(profile.fill.color, profile.fill.intensity));
+  }
+
+  if (profile.directional) {
+    const light = new THREE.DirectionalLight(profile.directional.color, profile.directional.intensity);
+    const position = profile.directional.position || { x: -9, y: 14, z: 8 };
+    light.position.set(position.x, position.y, position.z);
+    light.castShadow = Boolean(profile.directional.castShadow);
+    scene.add(light);
+  }
+
+  renderer.toneMappingExposure = profile.exposure ?? 1.18;
+}
+
 function resetCurrentLevel(text) {
+  if (state.reviveTransitioning) {
+    return;
+  }
+
   const levelIndex = state.levelIndex;
   const reviveMessage = state.level?.def?.reviveMessage || text || "You wake where the level first found you.";
-  player.health = 100;
-  loadLevel(levelIndex);
-  flashMessage(reviveMessage);
+  state.reviveTransitioning = true;
+  player.ended = true;
+  state.focusedPickup = null;
+  interactionHint?.classList.remove("is-visible");
+  deathTransition?.classList.add("is-active");
+
+  window.setTimeout(() => {
+    player.health = 100;
+    loadLevel(levelIndex);
+    player.ended = true;
+    flashMessage(reviveMessage);
+
+    window.setTimeout(() => {
+      deathTransition?.classList.remove("is-active");
+      state.reviveTransitioning = false;
+      player.ended = false;
+    }, 180);
+  }, 420);
 }
 
 function completeCurrentBuild() {

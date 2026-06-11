@@ -73,3 +73,51 @@ export function resumeAudioContext(audio) {
 
   return audio;
 }
+
+export function playPickupSound(audio) {
+  if (!audio?.ctx) {
+    return;
+  }
+  playToneBlip(audio.ctx, {
+    start: 720,
+    end: 1180,
+    duration: 0.12,
+    volume: 0.055,
+    type: "triangle",
+  });
+}
+
+export function playUseSound(audio) {
+  if (!audio?.ctx) {
+    return;
+  }
+  playToneBlip(audio.ctx, {
+    start: 440,
+    end: 260,
+    duration: 0.18,
+    volume: 0.045,
+    type: "sine",
+  });
+}
+
+function playToneBlip(ctx, { start, end, duration, volume, type }) {
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const filter = ctx.createBiquadFilter();
+
+  osc.type = type;
+  osc.frequency.setValueAtTime(start, now);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(1, end), now + duration);
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(1800, now);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(volume, now + 0.018);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+  osc.connect(filter);
+  filter.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + duration + 0.02);
+}

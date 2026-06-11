@@ -298,6 +298,50 @@ button {
   height: 2px;
 }
 
+.interaction-hint {
+  position: fixed;
+  left: 50%;
+  top: calc(50% + 34px);
+  z-index: 4;
+  min-width: 118px;
+  max-width: min(260px, calc(100vw - 32px));
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  color: rgba(255, 251, 233, 0.92);
+  background: rgba(6, 7, 6, 0.54);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-align: center;
+  transform: translate(-50%, 8px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease-out, transform 140ms ease-out;
+}
+
+.interaction-hint.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.death-transition {
+  position: fixed;
+  inset: 0;
+  z-index: 11;
+  background:
+    radial-gradient(circle at center, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.92) 58%),
+    #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 360ms ease-in-out;
+}
+
+.death-transition.is-active {
+  opacity: 1;
+}
+
 .veil {
   position: fixed;
   inset: 0;
