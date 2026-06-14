@@ -1,5 +1,7 @@
 ﻿import * as THREE from '../vendor/three.module.js';
 
+const textureLoader = new THREE.TextureLoader();
+
 export function materialFor(materials, def, part) {
   if (def.theme === "level0") {
     return {
@@ -65,14 +67,15 @@ export function materialFor(materials, def, part) {
 }
 
 export function createMaterials() {
+  const level0Wallpaper = loadRepeatingTexture("./assets/textures/level0/wallpaper.png", 1.05, 1.05);
+  const level0Floor = loadRepeatingTexture("./assets/textures/level0/floor.png", 1.45, 1.45);
+  const level0Ceiling = loadRepeatingTexture("./assets/textures/level0/ceiling_tiles.png", 1, 1);
+
   const wallpaper = new THREE.MeshStandardMaterial({
-    map: canvasTexture(256, 256, drawWallpaper),
-    roughness: 0.96,
+    map: level0Wallpaper,
+    roughness: 0.92,
     metalness: 0,
   });
-  wallpaper.map.wrapS = THREE.RepeatWrapping;
-  wallpaper.map.wrapT = THREE.RepeatWrapping;
-  wallpaper.map.repeat.set(1.2, 1.2);
 
   const manilaWall = new THREE.MeshStandardMaterial({
     map: canvasTexture(256, 256, drawManila),
@@ -83,13 +86,10 @@ export function createMaterials() {
   manilaWall.map.wrapT = THREE.RepeatWrapping;
 
   const carpet = new THREE.MeshStandardMaterial({
-    map: canvasTexture(256, 256, drawCarpet),
+    map: level0Floor,
     roughness: 1,
     metalness: 0,
   });
-  carpet.map.wrapS = THREE.RepeatWrapping;
-  carpet.map.wrapT = THREE.RepeatWrapping;
-  carpet.map.repeat.set(1.4, 1.4);
 
   const concreteWall = new THREE.MeshStandardMaterial({
     map: canvasTexture(256, 256, drawConcrete),
@@ -184,7 +184,7 @@ export function createMaterials() {
     manilaWall,
     carpet,
     manilaCarpet: new THREE.MeshStandardMaterial({ color: 0x8b8055, roughness: 1 }),
-    dropCeiling: new THREE.MeshStandardMaterial({ color: 0xb7ad7a, roughness: 0.94 }),
+    dropCeiling: new THREE.MeshStandardMaterial({ map: level0Ceiling, color: 0xd8d4bc, roughness: 0.92, metalness: 0 }),
     fixture: new THREE.MeshStandardMaterial({ color: 0xbec6bd, roughness: 0.42, metalness: 0.2 }),
     yellowLight: new THREE.MeshStandardMaterial({ color: 0xffefad, emissive: 0xffe18a, emissiveIntensity: 1.8 }),
     whiteLight: new THREE.MeshStandardMaterial({ color: 0xeef6ff, emissive: 0xdfefff, emissiveIntensity: 1.35 }),
@@ -293,6 +293,18 @@ export function createMaterials() {
     stair: new THREE.MeshStandardMaterial({ color: 0x575b57, roughness: 0.82 }),
     exitSign: new THREE.MeshStandardMaterial({ color: 0x56c276, emissive: 0x1f8f44, emissiveIntensity: 0.9 }),
   };
+}
+
+function loadRepeatingTexture(path, repeatX = 1, repeatY = 1) {
+  const texture = textureLoader.load(path);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(repeatX, repeatY);
+  texture.anisotropy = 4;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
 }
 
 function canvasTexture(width, height, draw) {
