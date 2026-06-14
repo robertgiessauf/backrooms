@@ -1,4 +1,5 @@
 ﻿import * as THREE from "../vendor/three.module.js";
+import { RectAreaLightUniformsLib } from "../vendor/RectAreaLightUniformsLib.js";
 import { LEVELS } from './levels.js';
 import { createMaterials, materialFor } from './materials.js';
 import { playPickupSound, playUseSound, resumeAudioContext } from './audio.js';
@@ -39,6 +40,12 @@ const LOW_OBSTACLE_CLEARANCE = 0.82;
 const LOOK_SPEED = 0.0021;
 const PICKUP_RANGE = 3.1;
 const TORCH_RANGE = 16;
+const AMBIENT_LIGHT_SCALE = 0.88;
+const FILL_LIGHT_SCALE = 0.72;
+const NEARBY_AREA_LIGHT_COUNT = 6;
+const NEARBY_AREA_LIGHT_UPDATE_SECONDS = 0.16;
+const NEARBY_SHADOW_LIGHT_COUNT = 2;
+const NEARBY_SHADOW_LIGHT_UPDATE_SECONDS = 0.2;
 const VISITED_LEVELS_STORAGE_KEY = "backrooms.visitedLevels";
 const INVENTORY_STORAGE_KEY = "backrooms.inventory";
 const INTRO_INFO_STORAGE_KEY = "backrooms.seenInfoPrompt";
@@ -59,6 +66,7 @@ renderer.toneMappingExposure = 1;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 mount.appendChild(renderer.domElement);
+RectAreaLightUniformsLib.init();
 
 const camera = new THREE.PerspectiveCamera(74, window.innerWidth / window.innerHeight, 0.04, 180);
 camera.rotation.order = "YXZ";
@@ -682,10 +690,94 @@ function updateLights(dt) {
         fixture.lightBase + Math.sin(time * fixture.rate * 0.91 + fixture.phase) * fixture.lightVariance;
     }
   }
+  updateNearbyAreaLights(dt);
+  updateNearbyShadowLights(dt);
 
   for (const fan of state.level.fans) {
     fan.rotation.y += dt * 2.4;
   }
+}
+
+function updateNearbyAreaLights(dt) {
+  if (!state.level.areaLights.length || !state.level.flickerLights.length) {
+    return;
+  }
+
+  state.level.areaLightUpdateTimer -= dt;
+  if (state.level.areaLightUpdateTimer > 0) {
+    return;
+  }
+  state.level.areaLightUpdateTimer = NEARBY_AREA_LIGHT_UPDATE_SECONDS;
+
+  const maxDistance = state.level.def.tile * 10;
+  const maxDistanceSq = maxDistance * maxDistance;
+  const nearest = getNearestFixtures(maxDistanceSq);
+
+  for (let i = 0; i < state.level.areaLights.length; i += 1) {
+    const light = state.level.areaLights[i];
+    const entry = nearest[i];
+    if (!entry) {
+      light.intensity = 0;
+      light.visible = false;
+      continue;
+    }
+
+    const fixture = entry.fixture;
+    const falloff = THREE.MathUtils.clamp(1 - Math.sqrt(entry.distanceSq) / maxDistance, 0.35, 1);
+    const flicker = Math.sin(clock.elapsedTime * fixture.rate * 0.84 + fixture.phase) * fixture.areaLightVariance;
+    light.visible = true;
+    light.color.setHex(fixture.areaLightColor);
+    light.width = fixture.areaLightWidth;
+    light.height = fixture.areaLightHeight;
+    light.position.set(fixture.x, state.level.def.ceiling - 0.18, fixture.z);
+    light.lookAt(fixture.x, 0, fixture.z);
+    light.intensity = Math.max(0, (fixture.areaLightBase + flicker) * falloff);
+  }
+}
+
+function updateNearbyShadowLights(dt) {
+  if (!state.level.shadowLights.length || !state.level.flickerLights.length) {
+    return;
+  }
+
+  state.level.shadowLightUpdateTimer -= dt;
+  if (state.level.shadowLightUpdateTimer > 0) {
+    return;
+  }
+  state.level.shadowLightUpdateTimer = NEARBY_SHADOW_LIGHT_UPDATE_SECONDS;
+
+  const maxDistance = state.level.def.tile * 7.5;
+  const maxDistanceSq = maxDistance * maxDistance;
+  const nearest = getNearestFixtures(maxDistanceSq);
+
+  for (let i = 0; i < state.level.shadowLights.length; i += 1) {
+    const light = state.level.shadowLights[i];
+    const entry = nearest[i];
+    if (!entry) {
+      light.intensity = 0;
+      light.visible = false;
+      continue;
+    }
+
+    const fixture = entry.fixture;
+    const falloff = THREE.MathUtils.clamp(1 - Math.sqrt(entry.distanceSq) / maxDistance, 0.2, 1);
+    light.visible = true;
+    light.color.setHex(fixture.shadowColor);
+    light.position.set(fixture.x, state.level.def.ceiling - 0.5, fixture.z);
+    light.intensity = (fixture.light?.intensity || fixture.areaLightBase || 1) * 0.9 * falloff;
+    light.distance = state.level.def.tile * 5.8;
+  }
+}
+
+function getNearestFixtures(maxDistanceSq) {
+  return state.level.flickerLights
+    .map((fixture) => {
+      const dx = fixture.x - player.position.x;
+      const dz = fixture.z - player.position.z;
+      return { fixture, distanceSq: dx * dx + dz * dz };
+    })
+    .filter((entry) => entry.distanceSq <= maxDistanceSq)
+    .sort((a, b) => a.distanceSq - b.distanceSq);
 }
 
 function updateAudio() {
@@ -1151,14 +1243,14 @@ function loadLevel(index, initial = false) {
 
 function applyLevelLighting(def) {
   const profile = def.lightingProfile || {};
-  const ambientIntensity = profile.ambientIntensity ?? def.ambientIntensity ?? 0.42;
+  const ambientIntensity = (profile.ambientIntensity ?? def.ambientIntensity ?? 0.42) * AMBIENT_LIGHT_SCALE;
   const hemi = new THREE.HemisphereLight(profile.sky ?? def.ambient, profile.ground ?? 0x11140f, ambientIntensity);
   scene.add(hemi);
 
-  scene.add(new THREE.AmbientLight(profile.baseFillColor ?? def.ambient, profile.baseFillIntensity ?? 0.16));
+  scene.add(new THREE.AmbientLight(profile.baseFillColor ?? def.ambient, (profile.baseFillIntensity ?? 0.16) * FILL_LIGHT_SCALE));
 
   if (profile.fill) {
-    scene.add(new THREE.AmbientLight(profile.fill.color, profile.fill.intensity));
+    scene.add(new THREE.AmbientLight(profile.fill.color, profile.fill.intensity * FILL_LIGHT_SCALE));
   }
 
   if (profile.directional) {
@@ -1231,6 +1323,10 @@ function buildLevel(def) {
     deathmoths: [],
     walkables: [],
     flickerLights: [],
+    areaLights: [],
+    areaLightUpdateTimer: 0,
+    shadowLights: [],
+    shadowLightUpdateTimer: 0,
     fans: [],
     start: new THREE.Vector3(0, PLAYER_HEIGHT, 0),
     defaultFogNear: def.fog.near,
@@ -1319,6 +1415,8 @@ function buildLevel(def) {
 
   addLighting(ctx, def, rows, width, depth, cellCenter, charAt);
   def.hooks?.afterBuild?.(createLevelBuildApi(ctx, rows, width, depth, cellCenter, charAt, tile, height));
+  createNearbyAreaLights(ctx);
+  createNearbyShadowLights(ctx);
 
   if (levelHasEntity(def, "smiler")) {
     prepareSmilerSpawnPoints(ctx, rows, width, depth, cellCenter, charAt, tile, { distance2D });
@@ -1478,8 +1576,14 @@ function addLighting(ctx, def, rows, width, depth, cellCenter, charAt) {
       }
 
       const fixture = addFluorescent(ctx, center.x, center.z, def.ceiling - 0.08, def.theme, manila);
+      addFixtureAreaLight(ctx, fixture, manila ? 0xffa646 : lighting.color ?? 0xddeeff, lighting.areaIntensity ?? (manila ? 1.15 : 1.45), manila);
       if (pointLights < maxPointLights) {
-        const light = new THREE.PointLight(manila ? 0xffa646 : lighting.color ?? 0xddeeff, manila ? 1.25 : lighting.intensity ?? 0.72, def.tile * 4.4, 1.6);
+        const light = new THREE.PointLight(
+          manila ? 0xffa646 : lighting.color ?? 0xddeeff,
+          (manila ? 1.25 : lighting.intensity ?? 0.72) * (lighting.pointIntensityMultiplier ?? 1.35),
+          def.tile * 4.4 * (lighting.pointRangeMultiplier ?? 1.18),
+          1.55
+        );
         light.position.set(center.x, def.ceiling - 0.45, center.z);
         light.castShadow = false;
         ctx.group.add(light);
@@ -1522,7 +1626,58 @@ function addFluorescent(ctx, x, z, y, theme, manila = false) {
     light: null,
     lightBase: 0,
     lightVariance: 0,
+    areaLightColor: manila ? 0xffa646 : theme === "level0" ? 0xffefac : 0xddeeff,
+    areaLightBase: 0,
+    areaLightVariance: 0,
+    areaLightWidth: manila ? 1.05 : 1.7,
+    areaLightHeight: manila ? 1.05 : 0.32,
+    shadowColor: manila ? 0xffa646 : theme === "level0" ? 0xffefac : 0xddeeff,
   };
+}
+
+function addFixtureAreaLight(ctx, fixture, color, intensity, manila = false) {
+  fixture.areaLightColor = color;
+  fixture.areaLightBase = intensity;
+  fixture.areaLightVariance = manila ? 0.035 : 0.075;
+  fixture.areaLightWidth = manila ? 1.05 : 1.7;
+  fixture.areaLightHeight = manila ? 1.05 : 0.32;
+}
+
+function createNearbyAreaLights(ctx) {
+  const lighting = ctx.def.lighting || {};
+  const count = lighting.areaLightCount ?? NEARBY_AREA_LIGHT_COUNT;
+  if (count <= 0 || ctx.flickerLights.length === 0) {
+    return;
+  }
+
+  for (let i = 0; i < count; i += 1) {
+    const light = new THREE.RectAreaLight(lighting.color ?? 0xffefac, 0, 1.7, 0.32);
+    light.visible = false;
+    ctx.group.add(light);
+    ctx.areaLights.push(light);
+  }
+}
+
+function createNearbyShadowLights(ctx) {
+  const lighting = ctx.def.lighting || {};
+  const count = lighting.shadowLightCount ?? NEARBY_SHADOW_LIGHT_COUNT;
+  if (count <= 0 || ctx.flickerLights.length === 0) {
+    return;
+  }
+
+  for (let i = 0; i < count; i += 1) {
+    const light = new THREE.PointLight(lighting.color ?? 0xffefac, 0, ctx.def.tile * 5.8, 1.55);
+    light.visible = false;
+    light.castShadow = true;
+    light.shadow.mapSize.set(512, 512);
+    light.shadow.bias = -0.0008;
+    light.shadow.normalBias = 0.035;
+    light.shadow.radius = 2.2;
+    light.shadow.camera.near = 0.12;
+    light.shadow.camera.far = ctx.def.tile * 6.2;
+    ctx.group.add(light);
+    ctx.shadowLights.push(light);
+  }
 }
 
 function addManilaAmbience(ctx, x, z, tile, height) {
@@ -1542,7 +1697,8 @@ function addManilaLight(ctx) {
   const x = (Math.min(...xs) + Math.max(...xs)) * 0.5;
   const z = (Math.min(...zs) + Math.max(...zs)) * 0.5;
   const fixture = addFluorescent(ctx, x, z, ctx.def.ceiling - 0.08, ctx.def.theme, true);
-  const light = new THREE.PointLight(0xff9a3d, 1.05, ctx.def.tile * 4.2, 1.7);
+  addFixtureAreaLight(ctx, fixture, 0xff9a3d, 1.15, true);
+  const light = new THREE.PointLight(0xff9a3d, 1.35, ctx.def.tile * 5.2, 1.55);
   light.position.set(x, ctx.def.ceiling - 0.35, z);
   ctx.group.add(light);
   fixture.light = light;

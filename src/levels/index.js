@@ -31,8 +31,8 @@ export const LEVELS = [
       fill: { color: 0x6b5c25, intensity: 0.1 },
     },
     lighting: {
-      maxPointLights: 28,
-      shouldLight: ({ ctx, manila }) => !manila && ctx.rng() < 0.18,
+      maxPointLights: 14,
+      shouldLight: ({ ctx, manila }) => !manila && ctx.rng() < 0.09,
       color: 0xffefac,
       intensity: 0.72,
     },
